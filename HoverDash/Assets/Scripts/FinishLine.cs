@@ -1,6 +1,8 @@
-// FinishLine.cs
+// FinishLine.cs (persistent variant)
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
+[RequireComponent(typeof(Collider))]
 public class FinishLine : MonoBehaviour
 {
     private static FinishLine instance;
@@ -8,35 +10,35 @@ public class FinishLine : MonoBehaviour
 
     private void Awake()
     {
-        // Enforce a single persistent finish-line object across reloads
-        if (instance && instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
+        if (instance && instance != this) { Destroy(gameObject); return; }
         instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // Cache collider so we can disable it after trigger
         finishCollider = GetComponent<Collider>();
+        finishCollider.isTrigger = true;
+
+        // Re-enable on every scene load
+        SceneManager.sceneLoaded += (_, __) => { if (finishCollider) finishCollider.enabled = true; };
+    }
+
+    private void OnDestroy()
+    {
+        SceneManager.sceneLoaded -= (_, __) => { if (finishCollider) finishCollider.enabled = true; };
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        // Only trigger when the player crosses the line
-        if (!other.CompareTag("Player"))
-            return;
+        if (!other.CompareTag("Player")) return;
 
-        // Calculate score and show the completion UI
-        ScoreManager.Instance.FinishLevel();
-        float score = ScoreManager.Instance.FinalScore;
-        UIManager.Instance.ShowLevelComplete(score);
+        var gm = FindObjectOfType<GameManager>();
+        if (gm != null)
+            gm.FinishRun();
+        else
+        {
+            ScoreManager.Instance.FinishLevel();
+            UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
+        }
 
-        // Prevent double-triggering
-        if (finishCollider)
-            finishCollider.enabled = false;
+        if (finishCollider) finishCollider.enabled = false;
     }
 }
-
-

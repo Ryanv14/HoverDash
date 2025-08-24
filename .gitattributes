@@ -1,8 +1,2 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-autocrlf = true
-
-# Unity asset files
-*.mat text merge=unityyamlmerge eol=lf
-*.unity text merge=unityyamlmerge eol=lf
-*.prefab text merge=unityyamlmerge eol=lf
