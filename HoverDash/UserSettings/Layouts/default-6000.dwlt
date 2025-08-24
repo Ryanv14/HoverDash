@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 1536
     height: 772.8
   m_ShowMode: 4
-  m_Title: Game
+  m_Title: Inspector
   m_RootView: {fileID: 6}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -48,7 +48,7 @@ MonoBehaviour:
   m_MinSize: {x: 300, y: 100}
   m_MaxSize: {x: 24288, y: 16192}
   vertical: 0
-  controlID: 110
+  controlID: 116
   draggingID: 0
 --- !u!114 &3
 MonoBehaviour:
@@ -343,8 +343,8 @@ MonoBehaviour:
     m_IsLocked: 0
   m_FolderTreeState:
     scrollPos: {x: 0, y: 0}
-    m_SelectedIDs: a4b40000
-    m_LastClickedID: 46244
+    m_SelectedIDs: a6b40000
+    m_LastClickedID: 46246
     m_ExpandedIDs: 00000000ffffff7f
     m_RenameOverlay:
       m_UserAcceptedRename: 0
@@ -520,9 +520,9 @@ MonoBehaviour:
   m_SceneHierarchy:
     m_TreeViewState:
       scrollPos: {x: 0, y: 0}
-      m_SelectedIDs: 28b10000
-      m_LastClickedID: 45352
-      m_ExpandedIDs: f4faffffc2b00000
+      m_SelectedIDs: 60b10000
+      m_LastClickedID: 45408
+      m_ExpandedIDs: defaffffc6b000002cb10000
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
