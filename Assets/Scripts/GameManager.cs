@@ -18,6 +18,7 @@ public class GameManager : MonoBehaviour
 
     public void RestartLevel()
     {
+        Debug.Log("Restart button pressed!");
         // Reload current scene to reset everything
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
