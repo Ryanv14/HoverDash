@@ -4,8 +4,8 @@ using UnityEngine;
 
 public class LeaderboardUI : MonoBehaviour
 {
-    [SerializeField] private Transform content;          // parent for rows (e.g., ScrollView Content)
-    [SerializeField] private LeaderboardRow rowPrefab;   // your row prefab
+    [SerializeField] private Transform content;          // parent for rows
+    [SerializeField] private LeaderboardRow rowPrefab;   // row prefab
     [SerializeField] private int maxRows = 100;
 
     public void Show(LeaderboardClient.ScoreRow[] rows)

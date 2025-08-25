@@ -2,10 +2,6 @@
 
 using UnityEngine;
 
-/// Provides a stable, anonymous playerId for the device.
-/// - Stores a GUID in PlayerPrefs on first run
-/// - Uses SystemInfo.deviceUniqueIdentifier when available (non-WebGL)
-/// - Ensures length 8..64 to satisfy your server validator
 public static class DeviceId
 {
     private const string Key = "device_id_cached";

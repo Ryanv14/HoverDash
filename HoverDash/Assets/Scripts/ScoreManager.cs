@@ -22,14 +22,14 @@ public class ScoreManager : MonoBehaviour
         startTime = Time.time;
     }
 
-    /// <summary>Call when a new run starts (even without scene reload).</summary>
+    // Call when a new run starts (even without scene reload)
     public void StartRun()
     {
         startTime = Time.time;
         FinalScore = 0f;
     }
 
-    /// <summary>Local scoring path (used on non-leaderboard levels).</summary>
+    // Local scoring path (used on non-leaderboard levels)
     public void FinishLevel()
     {
         float duration = Time.time - startTime;
@@ -37,7 +37,7 @@ public class ScoreManager : MonoBehaviour
         FinalScore = Mathf.Max(0.0f, stars * (1000f / Mathf.Max(0.0001f, duration)));
     }
 
-    /// <summary>Sets the score returned by the server.</summary>
+    // Sets the score returned by the server
     public void ApplyServerScore(double serverScore)
     {
         FinalScore = Mathf.Max(0f, (float)serverScore);

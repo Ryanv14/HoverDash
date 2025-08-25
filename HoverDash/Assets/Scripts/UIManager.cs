@@ -3,87 +3,159 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.SceneManagement;
 
+[DisallowMultipleComponent]
 public class UIManager : MonoBehaviour
 {
     public static UIManager Instance { get; private set; }
 
-    [Header("In-Game HUD")]
-    [SerializeField] private TextMeshProUGUI starText;  // Displays current stars
-    [SerializeField] private TextMeshProUGUI timerText; // Displays elapsed time
+    [Header("In-Game HUD (assign if you like; otherwise we'll auto-find)")]
+    [SerializeField] private TextMeshProUGUI starText;
+    [SerializeField] private TextMeshProUGUI timerText;
 
-    [Header("End-Game Screens")]
-    [SerializeField] private GameObject gameOverPanel;        // Shown on crash
-    [SerializeField] private GameObject levelCompletePanel;   // Shown on success
-    [SerializeField] private TextMeshProUGUI finalScoreText;  // Displays final score
+    [Header("End-Game Screens (assign or auto-find)")]
+    [SerializeField] private GameObject gameOverPanel;
+    [SerializeField] private GameObject levelCompletePanel;
+    [SerializeField] private TextMeshProUGUI finalScoreText;
+
+    [Header("Fallback Names (used if fields above are empty)")]
+    [SerializeField] private string starTextName = "StarText";
+    [SerializeField] private string timerTextName = "TimerText";
+    [SerializeField] private string gameOverPanelName = "GameOverPanel";
+    [SerializeField] private string levelCompleteName = "LevelCompletePanel";
+    [SerializeField] private string finalScoreTextName = "ScoreText"; 
 
     private float startTime;
     private bool timerRunning;
 
+    // ---------- lifecycle ----------
     private void Awake()
     {
-        // Singleton pattern for easy access
-        if (Instance == null)
-            Instance = this;
-        else
-            Destroy(gameObject);
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
+
+        RebindUI();
+        // Default state at scene load
+        SafeSetActive(gameOverPanel, false);
+        SafeSetActive(levelCompletePanel, false);
+        if (timerText) timerText.text = "0.00";
+        if (starText && StarManager.Instance) starText.text = StarManager.Instance.Stars.ToString();
+        timerRunning = false;
     }
 
-    private void Start()
-    {
-        // Reset UI elements on each load
-        starText.text = StarManager.Instance.Stars.ToString();
-        timerText.text = "0.00";
-        gameOverPanel.SetActive(false);
-        levelCompletePanel.SetActive(false);
-        timerRunning = false;
+    private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+    private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
 
-        // Optionally start timing immediately
-        StartTimer();
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        // Rebind every load in case new scene instances are created
+        RebindUI();
+
+        // Reset default UI state on load
+        SafeSetActive(gameOverPanel, false);
+        SafeSetActive(levelCompletePanel, false);
+        if (timerText) timerText.text = "0.00";
+        if (starText && StarManager.Instance) starText.text = StarManager.Instance.Stars.ToString();
+        timerRunning = false;
     }
 
     private void Update()
     {
-        if (!timerRunning) return;
+        if (!timerRunning || !timerText) return;
 
-        // Update timer display every frame
         float elapsed = Time.time - startTime;
         timerText.text = elapsed.ToString("F2");
     }
 
-    /// Call this to begin or restart the level timer.
+    // ---------- public API ----------
     public void StartTimer()
     {
         startTime = Time.time;
         timerRunning = true;
     }
 
-    /// Update the star count in the HUD.
-    public void UpdateStarCount(int stars) =>
-        starText.text = stars.ToString();
+    public void StopTimer() => timerRunning = false;
 
-    /// Show the Game Over screen and stop the timer.
+    public void UpdateStarCount(int stars)
+    {
+        if (starText) starText.text = stars.ToString();
+    }
+
     public void ShowGameOver()
     {
-        timerRunning = false;
-        gameOverPanel.SetActive(true);
+        StopTimer();
+        SafeSetActive(gameOverPanel, true);
     }
 
-    /// Show the Level Complete screen with the final score.
+    public void HideGameOver()
+    {
+        SafeSetActive(gameOverPanel, false);
+    }
+
     public void ShowLevelComplete(float finalScore)
     {
-        timerRunning = false;
-        levelCompletePanel.SetActive(true);
-        if (finalScoreText)
-            finalScoreText.text = $"Final Score: {finalScore:F1}";
+        StopTimer();
+        SafeSetActive(levelCompletePanel, true);
+        if (!finalScoreText)
+        {
+            // try late-bind once more (in case the panel was created/enabled now)
+            finalScoreText = finalScoreText ?? FindTextByName(finalScoreTextName);
+        }
+        if (finalScoreText) finalScoreText.text = $"Final Score: {finalScore:F1}";
     }
 
-    /// Button handler: return to main menu.
-    public void GoToMainMenu() =>
-        SceneManager.LoadScene("MainMenu");
+    public void HideLevelComplete()
+    {
+        SafeSetActive(levelCompletePanel, false);
+    }
 
-    /// Reload the current scene, resetting both game and UI.
     public void ResetUI() =>
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+
+    // ---------- binding helpers ----------
+    private void RebindUI()
+    {
+        // If fields are already assigned, keep them. Otherwise find by name (includes inactive).
+
+        if (!starText) starText = FindTextByName(starTextName);
+        if (!timerText) timerText = FindTextByName(timerTextName);
+        if (!finalScoreText) finalScoreText = FindTextByName(finalScoreTextName);
+
+        if (!gameOverPanel) gameOverPanel = FindGOByName(gameOverPanelName);
+        if (!levelCompletePanel) levelCompletePanel = FindGOByName(levelCompleteName);
+
+        Debug.Log($"[UI] Bind -> starText={(starText ? starText.name : "null")}, timerText={(timerText ? timerText.name : "null")}, " +
+                  $"gameOver={(gameOverPanel ? gameOverPanel.name : "null")}, levelComplete={(levelCompletePanel ? levelCompletePanel.name : "null")}, " +
+                  $"finalScoreText={(finalScoreText ? finalScoreText.name : "null")}");
+    }
+
+    private static void SafeSetActive(GameObject go, bool active)
+    {
+        if (go && go.activeSelf != active) go.SetActive(active);
+    }
+
+    private static GameObject FindGOByName(string targetName)
+    {
+        if (string.IsNullOrWhiteSpace(targetName)) return null;
+        var all = Resources.FindObjectsOfTypeAll<Transform>();
+        foreach (var t in all)
+        {
+            if (t.hideFlags != HideFlags.None) continue;
+            if (!t.gameObject.scene.IsValid()) continue; // ignore prefabs/assets
+            if (t.name == targetName) return t.gameObject;
+        }
+        return null;
+    }
+
+    private static TextMeshProUGUI FindTextByName(string targetName)
+    {
+        if (string.IsNullOrWhiteSpace(targetName)) return null;
+        var all = Resources.FindObjectsOfTypeAll<TextMeshProUGUI>();
+        foreach (var txt in all)
+        {
+            if (txt.hideFlags != HideFlags.None) continue;
+            if (!txt.gameObject.scene.IsValid()) continue;
+            if (txt.name == targetName || txt.gameObject.name == targetName) return txt;
+        }
+        return null;
+    }
 }
-
-

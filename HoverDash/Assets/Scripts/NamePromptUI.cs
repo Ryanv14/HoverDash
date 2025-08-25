@@ -21,7 +21,7 @@ public class NamePromptUI : MonoBehaviour
             if (string.IsNullOrEmpty(name)) name = "Anonymous";
             if (name.Length > 20) name = name.Substring(0, 20);
             Hide();
-            onConfirm?.Invoke(name);   // <-- just pass it back; no persistence
+            onConfirm?.Invoke(name);   
         });
 
         cancelButton.onClick.AddListener(() =>
