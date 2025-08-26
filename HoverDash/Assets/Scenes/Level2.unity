@@ -748,7 +748,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1785761521}
   m_HandleRect: {fileID: 1785761520}
   m_Direction: 0
-  m_Value: 0
+  m_Value: 1
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
@@ -3860,7 +3860,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -320, y: -140}
+  m_AnchoredPosition: {x: 200, y: -140}
   m_SizeDelta: {x: 160, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1304972368
@@ -4123,6 +4123,7 @@ GameObject:
   - component: {fileID: 1456876949}
   - component: {fileID: 1456876948}
   - component: {fileID: 1456876947}
+  - component: {fileID: 1456876950}
   m_Layer: 5
   m_Name: Leaderboard
   m_TagString: Untagged
@@ -4150,7 +4151,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
   m_AnchoredPosition: {x: 0, y: -41}
-  m_SizeDelta: {x: 800, y: 400}
+  m_SizeDelta: {x: 1600, y: 400}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1456876947
 MonoBehaviour:
@@ -4220,6 +4221,29 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1456876945}
   m_CullTransparentMesh: 1
+--- !u!114 &1456876950
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1456876945}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ae7f7a0b0ccab5447bfd23f648af2064, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  content: {fileID: 1726611504}
+  rowPrefab: {fileID: -506436731526770953, guid: 68a46ca444ffbaf42b1dc62b32fa84e3, type: 3}
+  maxRows: 100
+  autoFixLayout: 1
+  rowHeight: 48
+  spacing: 8
+  leftAlign: 1
+  loadingGroup: {fileID: 0}
+  emptyGroup: {fileID: 0}
+  errorGroup: {fileID: 0}
+  errorText: {fileID: 0}
 --- !u!1001 &1466450366
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -5234,7 +5258,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1178894738}
   m_HandleRect: {fileID: 1178894737}
   m_Direction: 2
-  m_Value: 0
+  m_Value: 1
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
@@ -5315,7 +5339,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0.0009612779}
+  m_AnchoredPosition: {x: -0.00048828125, y: -0.000026216554}
   m_SizeDelta: {x: 0, y: 300}
   m_Pivot: {x: 0, y: 1}
 --- !u!1 &1754635827
@@ -5736,7 +5760,7 @@ MonoBehaviour:
   timerTextName: TimerText
   gameOverPanelName: GameOverPanel
   levelCompleteName: LevelCompletePanel
-  finalScoreTextName: ScoreText
+  finalScoreTextName: Final Score
 --- !u!4 &1854185231
 Transform:
   m_ObjectHideFlags: 0
@@ -6047,7 +6071,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -320, y: -100}
+  m_AnchoredPosition: {x: -200, y: -140}
   m_SizeDelta: {x: 160, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &2067356547

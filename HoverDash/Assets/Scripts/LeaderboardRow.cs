@@ -1,18 +1,22 @@
 // LeaderboardRow.cs
 
 using UnityEngine;
-using UnityEngine.UI;
+using TMPro;
 
 public class LeaderboardRow : MonoBehaviour
 {
-    public Text rankText;
-    public Text nameText;
-    public Text scoreText;
+    [SerializeField] private TMP_Text rankText;
+    [SerializeField] private TMP_Text nameText;
+    [SerializeField] private TMP_Text scoreText;
 
-    public void Bind(int rank, LeaderboardClient.ScoreRow r)
+    // Bind a single row
+    public void Bind(int rank, LeaderboardClient.ScoreRow row)
     {
-        rankText.text = rank.ToString();
-        nameText.text = string.IsNullOrWhiteSpace(r.name) ? "Anonymous" : r.name;
-        scoreText.text = Mathf.RoundToInt((float)r.score).ToString();
+        if (rankText) rankText.text = rank.ToString();
+        if (nameText) nameText.text = string.IsNullOrWhiteSpace(row.name) ? "Anonymous" : row.name;
+
+        // Format score nicely; tweak if you prefer integers
+        if (scoreText) scoreText.text = Mathf.RoundToInt((float)row.score).ToString("N0");
     }
 }
+
