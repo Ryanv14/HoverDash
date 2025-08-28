@@ -1,42 +1,56 @@
 // FinishLine.cs
 using UnityEngine;
 
+[RequireComponent(typeof(Collider))]
 public class FinishLine : MonoBehaviour
 {
-    private static FinishLine instance;
+    [Tooltip("Keep ON if your Player uses CharacterController. Ensures triggers fire reliably.")]
+    [SerializeField] private bool ensureKinematicRigidbody = true;
+
     private Collider finishCollider;
+    private Rigidbody rb;
 
     private void Awake()
     {
-        // Enforce a single persistent finish-line object across reloads
-        if (instance && instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
-        instance = this;
-        DontDestroyOnLoad(gameObject);
-
-        // Cache collider so we can disable it after trigger
         finishCollider = GetComponent<Collider>();
+        finishCollider.isTrigger = true; // must be a trigger
+
+        // Ensure there's a kinematic rigidbody on this trigger 
+        if (ensureKinematicRigidbody)
+        {
+            rb = GetComponent<Rigidbody>();
+            if (rb == null) rb = gameObject.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
+    }
+
+    // Re-enable the trigger for another run (useful if you don't reload the scene)
+    public void ResetGate()
+    {
+        if (finishCollider) finishCollider.enabled = true;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        // Only trigger when the player crosses the line
-        if (!other.CompareTag("Player"))
-            return;
+        if (!other.CompareTag("Player")) return;
 
-        // Calculate score and show the completion UI
-        ScoreManager.Instance.FinishLevel();
-        float score = ScoreManager.Instance.FinalScore;
-        UIManager.Instance.ShowLevelComplete(score);
+        Debug.Log("[FinishLine] Player crossed the finish line.");
 
-        // Prevent double-triggering
-        if (finishCollider)
-            finishCollider.enabled = false;
+        // Delegate finish logic to GameManager (it will submit to server on leaderboard levels)
+        var gm = FindObjectOfType<GameManager>();
+        if (gm != null)
+        {
+            gm.FinishRun();
+        }
+        else
+        {
+            Debug.LogWarning("[FinishLine] GameManager not found; using local score fallback.");
+            ScoreManager.Instance.FinishLevel();
+            UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
+        }
+
+        // Prevent double-triggering until next run/reset
+        if (finishCollider) finishCollider.enabled = false;
     }
 }
-
-

@@ -10,7 +10,6 @@ public class ScoreManager : MonoBehaviour
 
     private void Awake()
     {
-        // Standard singleton setup
         if (Instance == null)
             Instance = this;
         else
@@ -19,19 +18,32 @@ public class ScoreManager : MonoBehaviour
 
     private void Start()
     {
-        // Record the moment level begins
+        // Record when the level begins
         startTime = Time.time;
     }
 
+    // Call when a new run starts (even without scene reload)
+    public void StartRun()
+    {
+        startTime = Time.time;
+        FinalScore = 0f;
+    }
+
+    // Local scoring path (used on non-leaderboard levels)
     public void FinishLevel()
     {
-        // Called when player crosses the finish line
         float duration = Time.time - startTime;
-        int stars = StarManager.Instance.Stars;
+        int stars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
+        FinalScore = Mathf.Max(0.0f, stars * (1000f / Mathf.Max(0.0001f, duration)));
+    }
 
-        // Scoring: faster & more stars = higher score
-        FinalScore = (1000f / duration) * Mathf.Sqrt(stars);
+    // Sets the score returned by the server
+    public void ApplyServerScore(double serverScore)
+    {
+        FinalScore = Mathf.Max(0f, (float)serverScore);
     }
 }
+
+
 
 
