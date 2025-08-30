@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 1521.6
     height: 758.4
   m_ShowMode: 4
-  m_Title: Inspector
+  m_Title: Scene
   m_RootView: {fileID: 6}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -343,9 +343,9 @@ MonoBehaviour:
     m_IsLocked: 0
   m_FolderTreeState:
     scrollPos: {x: 0, y: 0}
-    m_SelectedIDs: cab50000
-    m_LastClickedID: 46538
-    m_ExpandedIDs: 0000000060b50000
+    m_SelectedIDs: c6b50000
+    m_LastClickedID: 46534
+    m_ExpandedIDs: 0000000060b50000cab5000014b60000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -402,8 +402,8 @@ MonoBehaviour:
   m_ListAreaState:
     m_SelectedInstanceIDs: 
     m_LastClickedInstanceID: 0
-    m_HadKeyboardFocusLastEvent: 1
-    m_ExpandedInstanceIDs: c6230000a4b6000024b600002ee60000
+    m_HadKeyboardFocusLastEvent: 0
+    m_ExpandedInstanceIDs: c6230000a4b6000024b600002ee6000048eaffff80f2ffffe4d2ffff
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -475,7 +475,7 @@ MonoBehaviour:
     m_ControlHash: -371814159
     m_PrefName: Preview_InspectorPreview
   m_LastInspectedObjectInstanceID: -1
-  m_LastVerticalScrollValue: 715.05005
+  m_LastVerticalScrollValue: 318.6
   m_GlobalObjectId: 
   m_InspectorMode: 0
   m_LockTracker:
@@ -520,23 +520,23 @@ MonoBehaviour:
   m_SceneHierarchy:
     m_TreeViewState:
       scrollPos: {x: 0, y: 0}
-      m_SelectedIDs: c6b10000
-      m_LastClickedID: 45510
-      m_ExpandedIDs: 7ae2fffff4faffff0ab1000022b1000034b1000040b1000088b1000012b20000
+      m_SelectedIDs: 
+      m_LastClickedID: 0
+      m_ExpandedIDs: f4faffff0ab1000088b10000eeb10000
       m_RenameOverlay:
         m_UserAcceptedRename: 0
-        m_Name: Name
-        m_OriginalName: Name
+        m_Name: 
+        m_OriginalName: 
         m_EditFieldRect:
           serializedVersion: 2
           x: 0
           y: 0
           width: 0
           height: 0
-        m_UserData: 45364
+        m_UserData: 0
         m_IsWaitingForDelay: 0
         m_IsRenaming: 0
-        m_OriginalEventType: 0
+        m_OriginalEventType: 11
         m_IsRenamingFilename: 0
         m_TrimLeadingAndTrailingWhitespace: 0
         m_ClientGUIView: {fileID: 4}
@@ -1122,9 +1122,9 @@ MonoBehaviour:
     speed: 2
     m_Value: {x: 0.12566541, y: 0.0047619483, z: -0.00060320104, w: 0.9920611}
   m_Size:
-    m_Target: 226.28708
+    m_Target: 415.22906
     speed: 2
-    m_Value: 226.28708
+    m_Value: 415.22906
   m_Ortho:
     m_Target: 0
     speed: 2
