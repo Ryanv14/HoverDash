@@ -1,3 +1,4 @@
+// ButtonBindToGameManager.cs
 using UnityEngine;
 using UnityEngine.UI;
 

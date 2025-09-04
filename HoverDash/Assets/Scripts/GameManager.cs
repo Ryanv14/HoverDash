@@ -1,6 +1,8 @@
 // GameManager.cs
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using System;
+using System.Collections;
 
 [DisallowMultipleComponent]
 public class GameManager : MonoBehaviour
@@ -11,19 +13,28 @@ public class GameManager : MonoBehaviour
     [Header("UI Panels (GameObjects)")]
     [SerializeField] private GameObject namePromptUI;    // Panel with NamePromptUI
     [SerializeField] private GameObject leaderboardUI;   // Panel with LeaderboardUI 
+    [SerializeField] private GameObject startPromptUI;   // "Press W to start"
 
     [Header("Fallback names (optional)")]
     [SerializeField] private string namePromptObjectName = "NamePromptUI";
     [SerializeField] private string leaderboardObjectName = "LeaderboardUI";
+    [SerializeField] private string startPromptObjectName = "StartPromptUI";
 
-    // Cached components (resolved from the panels above, or auto-found)
+    // Cached components
     private NamePromptUI namePrompt;
     private LeaderboardUI leaderboard;
-
-    private bool isLeaderboardLevel;
     private LeaderboardClient lb;
 
-    // ---------- lifecycle ----------
+    private bool isLeaderboardLevel;
+
+    // Run-state gating
+    private bool waitingForPlayerStart = false; // true while "Press W" is up
+    private bool runInProgress = false;         // true from actual start until finish
+
+    // Player controller (to toggle movement)
+    private HoverVehicleController player;
+
+    // lifecycle 
     private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
     private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
 
@@ -36,52 +47,50 @@ public class GameManager : MonoBehaviour
             Debug.LogWarning("Level 2 is a leaderboard level but no LeaderboardClient was found.");
     }
 
-    private void Start() => StartRun();
+    private void Start() => PrepareRunGate(); // show "Press W" and wait
+
+    private void Update()
+    {
+        if (waitingForPlayerStart && Input.GetKeyDown(KeyCode.W))
+        {
+            BeginRunNow();
+        }
+    }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         RebindAll();
         isLeaderboardLevel = scene.name == leaderboardSceneName;
-        StartRun();
+        PrepareRunGate();
     }
 
-    // ---------- binding & helpers ----------
+    // binding & helpers 
     private void RebindAll()
     {
-        // API client
         lb = FindFirstObjectByType<LeaderboardClient>(FindObjectsInactive.Include);
+        player = FindFirstObjectByType<HoverVehicleController>(FindObjectsInactive.Include);
 
-        // Try to get components from assigned GameObjects
         if (namePromptUI) namePrompt = namePromptUI.GetComponent<NamePromptUI>();
         if (leaderboardUI) leaderboard = leaderboardUI.GetComponent<LeaderboardUI>();
 
-        // If not assigned/found, try to find by component (includes inactive)
-        if (!namePrompt)
-        {
-            namePrompt = FindFirstObjectByType<NamePromptUI>(FindObjectsInactive.Include);
-        }
+        if (!namePrompt) namePrompt = FindFirstObjectByType<NamePromptUI>(FindObjectsInactive.Include);
+        if (!leaderboard) leaderboard = FindFirstObjectByType<LeaderboardUI>(FindObjectsInactive.Include);
 
-        if (!leaderboard)
-        {
-            leaderboard = FindFirstObjectByType<LeaderboardUI>(FindObjectsInactive.Include);
-        }
-
-        // If still missing, try to find panels by name as a last resort
         if (!namePromptUI && !string.IsNullOrWhiteSpace(namePromptObjectName))
             namePromptUI = FindSceneObjectByName(namePromptObjectName);
 
         if (!leaderboardUI && !string.IsNullOrWhiteSpace(leaderboardObjectName))
             leaderboardUI = FindSceneObjectByName(leaderboardObjectName);
 
-        // Log what we ended up with
-        Debug.Log($"[GM] Bind: lb={(lb ? "ok" : "null")}, namePrompt={(namePrompt ? "ok" : "null")}, namePromptUI={(namePromptUI ? namePromptUI.name : "null")}, leaderboard={(leaderboard ? "ok" : "null")}, leaderboardUI={(leaderboardUI ? leaderboardUI.name : "null")}");
+        if (!startPromptUI && !string.IsNullOrWhiteSpace(startPromptObjectName))
+            startPromptUI = FindSceneObjectByName(startPromptObjectName);
+
+        Debug.Log($"[GM] Bind: lb={(lb ? "ok" : "null")}, startPromptUI={(startPromptUI ? startPromptUI.name : "null")}, namePrompt={(namePrompt ? "ok" : "null")}, leaderboard={(leaderboard ? "ok" : "null")}, player={(player ? player.name : "null")}");
     }
 
     private static GameObject FindSceneObjectByName(string targetName)
     {
         if (string.IsNullOrEmpty(targetName)) return null;
-
-        // Find inactive too, but only in the active scene (not prefabs/assets)
         var all = Resources.FindObjectsOfTypeAll<Transform>();
         foreach (var t in all)
         {
@@ -99,50 +108,86 @@ public class GameManager : MonoBehaviour
 
     private void HidePanelsAtRunStart()
     {
-        // Hide prompt + leaderboard panels if present
         SafeSetActive(namePromptUI, false);
         SafeSetActive(leaderboardUI, false);
-
-        // Hide UIManager end-game panels
         UIManager.Instance.HideLevelComplete();
         UIManager.Instance.HideGameOver();
     }
 
-    // ---------- run flow ----------
-    public void StartLevel() => StartRun(); // call this for no-reload restarts
-
-    private void StartRun()
+    // run flow 
+    private void PrepareRunGate()
     {
         HidePanelsAtRunStart();
 
-        // Reset HUD + score
         UIManager.Instance.UpdateStarCount(StarManager.Instance ? StarManager.Instance.Stars : 0);
-        UIManager.Instance.StartTimer();
-        ScoreManager.Instance.StartRun();
 
-        // Re-enable finish trigger if you don't reload the scene
         var finish = FindFirstObjectByType<FinishLine>(FindObjectsInactive.Include);
         if (finish) finish.ResetGate();
 
-        // Start server session for leaderboard level
+        // Gate movement
+        if (player)
+        {
+            player.SetMovementEnabled(false);
+            // legacy aliases 
+            player.SetControlsEnabled(false);
+            player.ZeroOutVelocity();
+        }
+
+        SafeSetActive(startPromptUI, true);
+
+        waitingForPlayerStart = true;
+        runInProgress = false;
+    }
+
+    private void BeginRunNow()
+    {
+        waitingForPlayerStart = false;
+        runInProgress = true;
+
+        SafeSetActive(startPromptUI, false);
+
+        UIManager.Instance.StartTimer();
+        ScoreManager.Instance.StartRun();
+
+        if (player)
+        {
+            player.SetMovementEnabled(true);
+            player.SetControlsEnabled(true); // legacy alias
+        }
+
         if (isLeaderboardLevel && lb != null)
             StartCoroutine(lb.StartLevel(leaderboardLevelId));
     }
 
+    public void StartLevel() => PrepareRunGate(); // public restart without reload
+
     public void FinishRun()
     {
-        // Show local result immediately
+        if (!runInProgress) return;
+        runInProgress = false;
+
+        if (player)
+        {
+            player.SetMovementEnabled(false);
+            player.SetControlsEnabled(false); // legacy alias
+            player.ZeroOutVelocity();
+        }
+
+        // Freeze score/time immediately
         ScoreManager.Instance.FinishLevel();
         UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
 
-        // Prompt & submit in background if it's the leaderboard level
         if (isLeaderboardLevel && lb != null)
         {
             if (namePrompt != null)
             {
+                string prefill = "";
+                float frozenDuration = ScoreManager.Instance.FinishedDuration;
+                int stars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
+
                 namePrompt.Show(
-                    prefill: "",
-                    onConfirm: name => StartCoroutine(SubmitAfterName(name)),
+                    prefill: prefill,
+                    onConfirm: name => StartCoroutine(SubmitAfterName(name, stars, frozenDuration)),
                     onCancel: () => { /* local score already shown */ }
                 );
             }
@@ -153,40 +198,62 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private System.Collections.IEnumerator SubmitAfterName(string name)
+    private IEnumerator SubmitAfterName(string name, int stars, float frozenDuration)
     {
-        // Ensure a session (handles very fast finishes)
         var ensureMethod = lb?.GetType().GetMethod("EnsureSession");
         if (ensureMethod != null)
-            yield return (System.Collections.IEnumerator)ensureMethod.Invoke(lb, new object[] { leaderboardLevelId });
+            yield return (IEnumerator)ensureMethod.Invoke(lb, new object[] { leaderboardLevelId });
 
-        // Submit; update to server-authoritative score; show leaderboard if available
-        yield return lb.FinishLevel(leaderboardLevelId, StarManager.Instance.Stars, name, serverScore =>
+        // Prefer duration-aware overload if present
+        var durationOverload = lb.GetType().GetMethod(
+            "FinishLevel",
+            new Type[] { typeof(string), typeof(int), typeof(string), typeof(float), typeof(Action<double>) }
+        );
+
+        if (durationOverload != null)
         {
-            ScoreManager.Instance.ApplyServerScore(serverScore);
-            UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
-
-            // Show leaderboard panel even if there is no LeaderboardUI script (best-effort)
-            if (leaderboard != null)
+            yield return (IEnumerator)durationOverload.Invoke(lb, new object[]
             {
-                StartCoroutine(lb.GetLeaderboard(leaderboardLevelId,
-                    rows =>
-                    {
-                        SafeSetActive(leaderboardUI, true);
-                        leaderboard.Show(rows);
-                    },
-                    err => Debug.LogWarning("Leaderboard fetch failed: " + err)));
-            }
-            else
+                leaderboardLevelId, stars, name, frozenDuration,
+                (Action<double>)((serverScore) =>
+                {
+                    ScoreManager.Instance.ApplyServerScore(serverScore);
+                    UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
+                    MaybeShowLeaderboard();
+                })
+            });
+        }
+        else
+        {
+            Debug.LogWarning("[GM] Duration-aware FinishLevel overload not found; falling back (score may drift if player waits).");
+            yield return lb.FinishLevel(leaderboardLevelId, stars, name, serverScore =>
             {
-                // No component—just show the panel if assigned/found
-                SafeSetActive(leaderboardUI, true);
-            }
-        });
+                ScoreManager.Instance.ApplyServerScore(serverScore);
+                UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
+                MaybeShowLeaderboard();
+            });
+        }
     }
 
-    public void GoToMainMenu() =>
-       SceneManager.LoadScene("MainMenu");
+    private void MaybeShowLeaderboard()
+    {
+        if (leaderboard != null)
+        {
+            StartCoroutine(lb.GetLeaderboard(leaderboardLevelId,
+                (LeaderboardClient.ScoreRow[] rows) =>
+                {
+                    SafeSetActive(leaderboardUI, true);
+                    leaderboard.Show(rows);
+                },
+                err => Debug.LogWarning("Leaderboard fetch failed: " + err)));
+        }
+        else
+        {
+            SafeSetActive(leaderboardUI, true);
+        }
+    }
+
+    public void GoToMainMenu() => SceneManager.LoadScene("MainMenu");
 
     public void RestartLevel()
     {

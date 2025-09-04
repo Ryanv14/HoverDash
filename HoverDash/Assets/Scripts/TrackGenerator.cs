@@ -1,5 +1,4 @@
 // TrackGenerator.cs
-
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -131,7 +130,7 @@ public class TrackGenerator : MonoBehaviour
         var obstaclesRoot = GetOrCreateChild(ObstaclesNodeName);
         var prng = new System.Random(seed);
 
-        // Compute usable half-width so spawns are BETWEEN the walls.
+        // Compute usable half-width so spawns are between the walls.
         float usableHalf = Mathf.Max(
             0.05f,
             halfTrackWidth - (wallThickness * 0.5f) - obstaclePaddingFromWall - Mathf.Max(0f, obstacleApproxHalfWidth)
