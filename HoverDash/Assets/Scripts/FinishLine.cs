@@ -37,8 +37,8 @@ public class FinishLine : MonoBehaviour
 
         Debug.Log("[FinishLine] Player crossed the finish line.");
 
-        // Delegate finish logic to GameManager (it will submit to server on leaderboard levels)
-        var gm = FindObjectOfType<GameManager>();
+        // Delegate finish logic to GameManager
+        var gm = FindFirstObjectByType<GameManager>();
         if (gm != null)
         {
             gm.FinishRun();
@@ -47,6 +47,7 @@ public class FinishLine : MonoBehaviour
         {
             Debug.LogWarning("[FinishLine] GameManager not found; using local score fallback.");
             ScoreManager.Instance.FinishLevel();
+            UIManager.Instance.StopTimer();
             UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
         }
 

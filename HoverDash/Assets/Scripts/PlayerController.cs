@@ -5,27 +5,26 @@ using UnityEngine;
 public class HoverVehicleController : MonoBehaviour
 {
     [Header("Hover Settings")]
-    [SerializeField] private float hoverHeight = 1f; // Ideal distance above ground
+    [SerializeField] private float hoverHeight = 1f;
 
     [SerializeField, Tooltip("Small upright assistance")]
     private float stabilizationForce = 2f;
 
     [Header("Movement Speeds")]
-    [SerializeField] private float moveSpeed = 25f;   // Forward/reverse
-    [SerializeField] private float strafeSpeed = 20f; // Left/right
+    [SerializeField] private float moveSpeed = 25f;
+    [SerializeField] private float strafeSpeed = 20f;
 
     [Header("Responsiveness")]
     [SerializeField, Tooltip("How quickly the vehicle stops when input ceases")]
     private float linearDrag = 1f;
 
     [Header("Jump")]
-    [SerializeField] private int jumpCost = 10;              // stars per jump
-    [SerializeField] private float jumpVelocityChange = 15f; // upward velocity delta
-    [SerializeField] private float jumpCooldown = 0.25f;     // seconds between jumps
-    [SerializeField] private float hoverSuspendTime = 0.25f; // seconds to disable hover after jump
-    [SerializeField] private float groundCheckMultiplier = 1.25f; // ray length factor
+    [SerializeField] private int jumpCost = 10;
+    [SerializeField] private float jumpVelocityChange = 15f;
+    [SerializeField] private float jumpCooldown = 0.25f;
+    [SerializeField] private float hoverSuspendTime = 0.25f;
+    [SerializeField] private float groundCheckMultiplier = 1.25f;
 
-    // BANKING (lean while strafing)
     [Header("Banking (Lean)")]
     [SerializeField, Tooltip("Max roll angle (degrees) when fully strafing")]
     private float maxBankAngle = 25f;
@@ -34,7 +33,6 @@ public class HoverVehicleController : MonoBehaviour
     [SerializeField, Tooltip("Extra bank from actual lateral velocity (0 = none)")]
     private float velBankFactor = 0.5f;
 
-    // MULTI-POINT HOVER SUSPENSION
     [Header("Hover Suspension (multi-point)")]
     [SerializeField, Tooltip("Spring strength at each hover point")]
     private float hoverSpring = 400f;
@@ -42,7 +40,7 @@ public class HoverVehicleController : MonoBehaviour
     private float hoverDamper = 50f;
     [SerializeField, Tooltip("Multiply the per-point gravity share (1.0 = exact)")]
     private float hoverGravityCompensation = 1.02f;
-    [SerializeField, Tooltip("Local-space hover points (corners). Spread them wider for more roll stability.")]
+    [SerializeField, Tooltip("Local-space hover points")]
     private Vector3[] hoverPointsLocal = new Vector3[]
     {
         new Vector3( 0.7f, 0f,  0.7f),
@@ -51,52 +49,81 @@ public class HoverVehicleController : MonoBehaviour
         new Vector3(-0.7f, 0f, -0.7f)
     };
 
+    [Header("Run Gate")]
+    [SerializeField, Tooltip("Movement & input are ignored when disabled. Hover still works.")]
+    private bool movementEnabled = false;
+
     private Rigidbody rb;
     private float inputH, inputV;
     private float lastJumpTime = -999f;
     private float hoverResumeTime = 0f;
     private bool gravityWasEnabled = true;
 
-    // Ground detection
-    [SerializeField] private LayerMask groundMask = ~0; // default: everything
+    [SerializeField] private LayerMask groundMask = ~0;
+
+    // Public toggles/wrappers
+    public void SetMovementEnabled(bool enabled) => movementEnabled = enabled;
+    public void SetControlsEnabled(bool enabled) => SetMovementEnabled(enabled);
+    public void ZeroOutVelocity()
+    {
+        if (!rb) return;
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+    }
 
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
-        rb.constraints = RigidbodyConstraints.FreezeRotation; // strafe-only
+        rb.constraints = RigidbodyConstraints.FreezeRotation;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-
         rb.linearDamping = linearDrag;
-
         gravityWasEnabled = rb.useGravity;
     }
 
     private void Update()
     {
-        inputV = Input.GetAxis("Vertical");
-        inputH = Input.GetAxis("Horizontal");
+        if (movementEnabled)
+        {
+            inputV = Input.GetAxis("Vertical");
+            inputH = Input.GetAxis("Horizontal");
 
-        if (Input.GetKeyDown(KeyCode.Space))
-            TryJump();
+            if (Input.GetKeyDown(KeyCode.Space))
+                TryJump();
+        }
+        else
+        {
+            inputV = 0f;
+            inputH = 0f;
+        }
     }
 
     private void FixedUpdate()
     {
-        // Re-enable gravity after the hover suspend window
         if (!rb.useGravity && Time.time >= hoverResumeTime)
             rb.useGravity = gravityWasEnabled;
 
-        ApplyHover();     // multi-point suspension (now true equilibrium at hoverHeight)
-        ApplyMovement();  // forward/strafe with wall avoidance on a flat plane
-        ApplyBanking();   // visual/physical roll toward target bank
+        ApplyHover();
+
+        if (movementEnabled)
+        {
+            ApplyMovement();
+            ApplyBanking();
+        }
+        else
+        {
+            Vector3 velFlat = Vector3.ProjectOnPlane(rb.linearVelocity, Vector3.up);
+            rb.AddForce(-velFlat, ForceMode.VelocityChange);
+
+            Quaternion yawOnly = Quaternion.LookRotation(transform.forward, Vector3.up);
+            Quaternion smoothed = Quaternion.Slerp(rb.rotation, yawOnly, 10f * Time.fixedDeltaTime);
+            rb.MoveRotation(smoothed);
+        }
     }
 
-    // FLAT BASIS 
-    // Returns forward/right projected onto a flat plane (XZ).
     private void GetFlatBasis(out Vector3 fwdFlat, out Vector3 rightFlat)
     {
-        Vector3 up = Vector3.up; // change to averaged ground normal if slope-conforming desired
+        Vector3 up = Vector3.up;
         fwdFlat = Vector3.ProjectOnPlane(transform.forward, up);
         if (fwdFlat.sqrMagnitude < 1e-6f)
             fwdFlat = Vector3.ProjectOnPlane(transform.up, up);
@@ -104,7 +131,6 @@ public class HoverVehicleController : MonoBehaviour
         rightFlat = Vector3.Cross(up, fwdFlat).normalized;
     }
 
-    // HOVER (multi-point, equilibrium) 
     private void ApplyHover()
     {
         if (Time.time < hoverResumeTime)
@@ -123,13 +149,9 @@ public class HoverVehicleController : MonoBehaviour
             {
                 hits++;
 
-                // Error: + if we're below target (need more lift), - if we're above target (need less)
                 float error = hoverHeight - hit.distance;
-
-                // Damper: oppose vertical velocity at the point
                 float pointVelUp = Vector3.Dot(rb.GetPointVelocity(p), Vector3.up);
 
-                // Per-point up force (never push down; gravity already handles that)
                 float up = gravityShare + (error * hoverSpring) + (-pointVelUp * hoverDamper);
                 if (up < 0f) up = 0f;
 
@@ -141,46 +163,32 @@ public class HoverVehicleController : MonoBehaviour
             }
         }
 
-        // Small upright assist toward the banked up-vector (doesn't fight roll visibly)
-        float targetRollDeg = ComputeTargetRollDegrees();
+        float targetRollDeg = movementEnabled ? ComputeTargetRollDegrees() : 0f;
         Vector3 desiredUp = Quaternion.AngleAxis(targetRollDeg, transform.forward) * Vector3.up;
         Vector3 uprightTorque = Vector3.Cross(transform.up, desiredUp) * stabilizationForce;
         rb.AddTorque(uprightTorque, ForceMode.Acceleration);
 
-        // If truly no ground anywhere, let gravity take over (free fall feel),
-        // but give a tiny up bias so we don't instantly slam.
         if (hits == 0)
             rb.AddForce(Vector3.up * (rb.mass * Physics.gravity.magnitude * -2f), ForceMode.Force);
     }
 
-    // MOVEMENT
     private void ApplyMovement()
     {
         GetFlatBasis(out var fwdFlat, out var rightFlat);
-
-        // Desired velocity lives on the flat plane (no vertical component)
         Vector3 desired = fwdFlat * (inputV * moveSpeed) + rightFlat * (inputH * strafeSpeed);
-
-        // Compare against the current velocity flattened to the plane
         Vector3 velFlat = Vector3.ProjectOnPlane(rb.linearVelocity, Vector3.up);
         Vector3 velocityDiff = desired - velFlat;
-
         rb.AddForce(velocityDiff, ForceMode.VelocityChange);
     }
 
-
-    // BANKING
     private float ComputeTargetRollDegrees()
     {
-        float target = -inputH * maxBankAngle; // strafe right = roll right
-
-        // Use flat basis + flat velocity so roll doesn't react to vertical components
+        float target = -inputH * maxBankAngle;
         GetFlatBasis(out var _, out var rightFlat);
         Vector3 velFlat = Vector3.ProjectOnPlane(rb.linearVelocity, Vector3.up);
         float lateralSpeed = Vector3.Dot(velFlat, rightFlat);
         float lateral01 = Mathf.Clamp(lateralSpeed / Mathf.Max(1f, strafeSpeed), -1f, 1f);
         target += -lateral01 * (maxBankAngle * velBankFactor);
-
         return target;
     }
 
@@ -193,7 +201,6 @@ public class HoverVehicleController : MonoBehaviour
         rb.MoveRotation(smoothed);
     }
 
-    // GROUND AND JUMP 
     private bool IsGrounded()
     {
         float maxRay = Mathf.Max(hoverHeight * groundCheckMultiplier, 0.1f);
@@ -202,11 +209,9 @@ public class HoverVehicleController : MonoBehaviour
 
     private void TryJump()
     {
-        if (Time.time - lastJumpTime < jumpCooldown)
-            return;
-
-        if (!IsGrounded())
-            return;
+        if (!movementEnabled) return;
+        if (Time.time - lastJumpTime < jumpCooldown) return;
+        if (!IsGrounded()) return;
 
         if (StarManager.Instance != null && StarManager.Instance.SpendStars(jumpCost))
         {
@@ -227,10 +232,7 @@ public class HoverVehicleController : MonoBehaviour
 #if UNITY_EDITOR
     private void OnDrawGizmosSelected()
     {
-        // Use flat basis for gizmos so the rays are horizontal
         GetFlatBasis(out var _, out var rightFlat);
-
-
         Gizmos.color = Color.yellow;
         if (hoverPointsLocal != null)
         {
@@ -244,4 +246,3 @@ public class HoverVehicleController : MonoBehaviour
     }
 #endif
 }
-

@@ -2,7 +2,7 @@
 
 using UnityEngine;
 using TMPro;
-using UnityEngine.UI; // <- for layout components
+using UnityEngine.UI;
 
 public class LeaderboardUI : MonoBehaviour
 {
@@ -71,7 +71,7 @@ public class LeaderboardUI : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             var row = Instantiate(rowPrefab, content);
-            ConfigureRowLayout(row);          // <- ensure row has LayoutElement/anchors
+            ConfigureRowLayout(row);          
             row.Bind(i + 1, rows[i]);
         }
 
@@ -94,7 +94,7 @@ public class LeaderboardUI : MonoBehaviour
         if (go && go.activeSelf != on) go.SetActive(on);
     }
 
-    // ---------- Layout helpers ----------
+    // Layout helpers 
     private void EnsureContentLayout()
     {
         if (!content) return;
@@ -150,8 +150,6 @@ public class LeaderboardUI : MonoBehaviour
         le.preferredHeight = rowHeight;
         le.minHeight = rowHeight;
 
-        // Optional: if your row prefab doesn’t already have a HorizontalLayoutGroup,
-        // add one so its texts align nicely.
         var hlg = go.GetComponent<HorizontalLayoutGroup>();
         if (!hlg)
         {

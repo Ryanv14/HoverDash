@@ -27,7 +27,7 @@ public class UIManager : MonoBehaviour
     private float startTime;
     private bool timerRunning;
 
-    // ---------- lifecycle ----------
+    // lifecycle 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
@@ -66,7 +66,7 @@ public class UIManager : MonoBehaviour
         timerText.text = elapsed.ToString("F2");
     }
 
-    // ---------- public API ----------
+    // public API 
     public void StartTimer()
     {
         startTime = Time.time;
@@ -97,7 +97,7 @@ public class UIManager : MonoBehaviour
         SafeSetActive(levelCompletePanel, true);
         if (!finalScoreText)
         {
-            // try late-bind once more (in case the panel was created/enabled now)
+            // try late-bind once more
             finalScoreText = finalScoreText ?? FindTextByName(finalScoreTextName);
         }
         if (finalScoreText) finalScoreText.text = $"Final Score: {finalScore:F1}";
@@ -111,10 +111,10 @@ public class UIManager : MonoBehaviour
     public void ResetUI() =>
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
 
-    // ---------- binding helpers ----------
+    // binding helpers 
     private void RebindUI()
     {
-        // If fields are already assigned, keep them. Otherwise find by name (includes inactive).
+        // If fields are already assigned, keep them. Otherwise find by name.
 
         if (!starText) starText = FindTextByName(starTextName);
         if (!timerText) timerText = FindTextByName(timerTextName);
