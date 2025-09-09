@@ -53,11 +53,58 @@ public class HoverVehicleController : MonoBehaviour
     [SerializeField, Tooltip("Movement & input are ignored when disabled. Hover still works.")]
     private bool movementEnabled = false;
 
+    // ---------------- AUDIO ----------------
+    [Header("Audio")]
+    [SerializeField, Tooltip("Looping engine/hover sound (seamless loop).")]
+    private AudioClip hoverLoop;
+
+    [SerializeField, Tooltip("Optional jump SFX (one-shot).")]
+    private AudioClip jumpSfx;
+
+    [SerializeField, Tooltip("Optional landing SFX (one-shot).")]
+    private AudioClip landSfx;
+
+    [SerializeField, Tooltip("AudioSource used for the engine loop. If not set, one will be created.")]
+    private AudioSource engineSource;
+
+    [SerializeField, Tooltip("AudioSource for one-shots (jump/land). If not set, one will be created.")]
+    private AudioSource sfxSource;
+
+    [SerializeField, Tooltip("Pitch at rest.")]
+    private float basePitch = 1f;
+
+    [SerializeField, Tooltip("Additional pitch from flat speed (units per second).")]
+    private float pitchFromSpeed = 0.02f;
+
+    [SerializeField, Tooltip("How quickly pitch/volume follow targets.")]
+    private float audioSmoothing = 8f;
+
+    [SerializeField, Tooltip("Max pitch clamp for the engine.")]
+    private float maxPitch = 2f;
+
+    [SerializeField, Tooltip("Engine volume when grounded.")]
+    private float volumeWhenGrounded = 0.9f;
+
+    [SerializeField, Tooltip("Engine volume when airborne (no ground hits).")]
+    private float volumeWhenAirborne = 0.6f;
+
+    [SerializeField, Tooltip("Extra volume when player is actively giving input.")]
+    private float volumeBoostOnInput = 0.1f;
+
+    [SerializeField, Tooltip("3D rolloff min distance.")]
+    private float min3DDistance = 2f;
+
+    [SerializeField, Tooltip("3D rolloff max distance.")]
+    private float max3DDistance = 25f;
+
+    // ---------------------------------------
+
     private Rigidbody rb;
     private float inputH, inputV;
     private float lastJumpTime = -999f;
     private float hoverResumeTime = 0f;
     private bool gravityWasEnabled = true;
+    private bool wasGrounded = false;
 
     [SerializeField] private LayerMask groundMask = ~0;
 
@@ -71,6 +118,26 @@ public class HoverVehicleController : MonoBehaviour
         rb.angularVelocity = Vector3.zero;
     }
 
+    private void Awake()
+    {
+        // Ensure audio sources exist/configured
+        if (!engineSource)
+        {
+            var go = new GameObject("Engine_AudioSource");
+            go.transform.SetParent(transform, false);
+            engineSource = go.AddComponent<AudioSource>();
+        }
+        if (!sfxSource)
+        {
+            var go = new GameObject("SFX_AudioSource");
+            go.transform.SetParent(transform, false);
+            sfxSource = go.AddComponent<AudioSource>();
+        }
+
+        ConfigureEngineSource();
+        ConfigureSfxSource();
+    }
+
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
@@ -79,6 +146,32 @@ public class HoverVehicleController : MonoBehaviour
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.linearDamping = linearDrag;
         gravityWasEnabled = rb.useGravity;
+
+        // Start engine loop if we have a clip
+        if (hoverLoop)
+        {
+            engineSource.clip = hoverLoop;
+            engineSource.loop = true;
+            if (!engineSource.isPlaying) engineSource.Play();
+        }
+
+        wasGrounded = IsGrounded();
+        SetEngineInstant(wasGrounded, 0f); // initialize volume/pitch
+    }
+
+    private void OnEnable()
+    {
+        // Resume loop on enable
+        if (hoverLoop && engineSource && !engineSource.isPlaying)
+        {
+            engineSource.Play();
+        }
+    }
+
+    private void OnDisable()
+    {
+        // Pause loop on disable (keeps time position)
+        if (engineSource) engineSource.Pause();
     }
 
     private void Update()
@@ -96,6 +189,8 @@ public class HoverVehicleController : MonoBehaviour
             inputV = 0f;
             inputH = 0f;
         }
+
+        UpdateEngineAudio();
     }
 
     private void FixedUpdate()
@@ -119,6 +214,14 @@ public class HoverVehicleController : MonoBehaviour
             Quaternion smoothed = Quaternion.Slerp(rb.rotation, yawOnly, 10f * Time.fixedDeltaTime);
             rb.MoveRotation(smoothed);
         }
+
+        // Land SFX detection
+        bool grounded = IsGrounded();
+        if (!wasGrounded && grounded)
+        {
+            PlayOneShot(landSfx);
+        }
+        wasGrounded = grounded;
     }
 
     private void GetFlatBasis(out Vector3 fwdFlat, out Vector3 rightFlat)
@@ -226,7 +329,86 @@ public class HoverVehicleController : MonoBehaviour
             hoverResumeTime = Time.time + hoverSuspendTime;
 
             lastJumpTime = Time.time;
+
+            PlayOneShot(jumpSfx);
         }
+    }
+
+    // ---------------- AUDIO IMPLEMENTATION ----------------
+
+    private void ConfigureEngineSource()
+    {
+        if (!engineSource) return;
+        engineSource.playOnAwake = false;
+        engineSource.loop = true;
+        engineSource.spatialBlend = 1f;        // fully 3D
+        engineSource.dopplerLevel = 0.5f;
+        engineSource.rolloffMode = AudioRolloffMode.Logarithmic;
+        engineSource.minDistance = min3DDistance;
+        engineSource.maxDistance = max3DDistance;
+        engineSource.volume = 0f;              // fade in via logic
+        engineSource.pitch = basePitch;
+        engineSource.priority = 64;            // favor important SFX
+    }
+
+    private void ConfigureSfxSource()
+    {
+        if (!sfxSource) return;
+        sfxSource.playOnAwake = false;
+        sfxSource.loop = false;
+        sfxSource.spatialBlend = 1f;
+        sfxSource.dopplerLevel = 0.5f;
+        sfxSource.rolloffMode = AudioRolloffMode.Logarithmic;
+        sfxSource.minDistance = min3DDistance;
+        sfxSource.maxDistance = max3DDistance;
+        sfxSource.priority = 128;
+    }
+
+    private void UpdateEngineAudio()
+    {
+        if (!engineSource) return;
+
+        // Determine target pitch from flat speed
+        Vector3 velFlat = Vector3.ProjectOnPlane(rb ? rb.linearVelocity : Vector3.zero, Vector3.up);
+        float speed = velFlat.magnitude;
+
+        float targetPitch = Mathf.Min(basePitch + speed * pitchFromSpeed, maxPitch);
+
+        // Determine target volume from grounded state + input
+        bool grounded = IsGrounded();
+        float targetVol = grounded ? volumeWhenGrounded : volumeWhenAirborne;
+
+        // Subtle boost when actively piloting
+        bool hasInput = movementEnabled && (Mathf.Abs(inputH) > 0.01f || Mathf.Abs(inputV) > 0.01f);
+        if (hasInput) targetVol += volumeBoostOnInput;
+
+        targetVol = Mathf.Clamp01(targetVol);
+
+        // Smoothly approach target values
+        float t = Time.deltaTime * audioSmoothing;
+        engineSource.pitch = Mathf.Lerp(engineSource.pitch, targetPitch, t);
+        engineSource.volume = Mathf.Lerp(engineSource.volume, targetVol, t);
+
+        // Ensure playing if we have a clip assigned
+        if (hoverLoop && !engineSource.isPlaying)
+        {
+            engineSource.clip = hoverLoop;
+            engineSource.Play();
+        }
+    }
+
+    private void SetEngineInstant(bool grounded, float speed)
+    {
+        if (!engineSource) return;
+        engineSource.pitch = Mathf.Min(basePitch + speed * pitchFromSpeed, maxPitch);
+        float v = grounded ? volumeWhenGrounded : volumeWhenAirborne;
+        engineSource.volume = Mathf.Clamp01(v);
+    }
+
+    private void PlayOneShot(AudioClip clip)
+    {
+        if (!clip || !sfxSource) return;
+        sfxSource.PlayOneShot(clip);
     }
 
 #if UNITY_EDITOR
