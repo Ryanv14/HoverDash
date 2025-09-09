@@ -97,6 +97,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   points: 10
+  collectSfx: {fileID: 8300000, guid: cbbb3cfed2f0f014d8ef6b906d425277, type: 3}
+  collectSfxVolume: 0.8
   amplitude: 0.15
   frequency: 1
   randomizePhase: 1

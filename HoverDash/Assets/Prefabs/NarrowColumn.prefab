@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 4019192104672270048}
   - component: {fileID: 1400393790999748536}
   - component: {fileID: 3869763589600908731}
+  - component: {fileID: 4821776067453369767}
   m_Layer: 0
   m_Name: NarrowColumn
   m_TagString: Narrow Obstacle
@@ -66,7 +67,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: bcf7f74423524784eb70c1ec693b3110, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -122,3 +123,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   useTrigger: 1
+--- !u!114 &4821776067453369767
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8365835069697184452}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5a8efab94c783204597b1e96c3c20915, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  emissionColor: {r: 0.18700601, g: 0.9622642, b: 0.9622642, a: 1}
+  intensity: 0.8
+  materialNameMustContain:
+  - glow
+  - trim
+  - emiss

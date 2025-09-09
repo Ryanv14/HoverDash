@@ -262,6 +262,35 @@ public class TrackGenerator : MonoBehaviour
 #endif
         go.transform.localRotation = rot;
 
+        var accentColors = new[]
+    {
+        new Color(0f, 0.9f, 1f),   // cyan
+        new Color(1f, 0.8f, 0.2f), // amber
+        new Color(0.6f, 1f, 0.8f)  // mint
+    };
+
+var applier = go.GetComponent<ObstacleAccentApplier>();
+if (!applier) applier = go.AddComponent<ObstacleAccentApplier>();
+
+applier.emissionColor = accentColors[prng.Next(0, accentColors.Length)];
+applier.intensity = 0.8f; // ↓ less bright (try 0.6–1.0 if still hot)
+applier.Apply();
+
+        var mrList = go.GetComponentsInChildren<MeshRenderer>(true);
+        var mpb = new MaterialPropertyBlock();
+        Color[] accent = {
+        new Color(0f, 0.9f, 1f),   // cyan
+        new Color(1f, 0.8f, 0.2f), // amber
+        new Color(0.6f, 1f, 0.8f)  // mint
+    };
+        var c = accent[prng.Next(0, accent.Length)];
+        foreach (var mr in mrList)
+        {
+            mr.GetPropertyBlock(mpb);
+            mpb.SetColor("_EmissionColor", c * 2.2f); // tweak intensity to taste
+            mr.SetPropertyBlock(mpb);
+        }
+
         // Grounding offset from renderers
         float bottomY = 0f;
         var renderers = go.GetComponentsInChildren<Renderer>();

@@ -20664,6 +20664,7 @@ GameObject:
   - component: {fileID: 651317057}
   - component: {fileID: 651317056}
   - component: {fileID: 651317055}
+  - component: {fileID: 651317059}
   m_Layer: 0
   m_Name: Third Person Aim Camera
   m_TagString: Untagged
@@ -20773,6 +20774,14 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!81 &651317059
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 651317054}
+  m_Enabled: 1
 --- !u!1001 &651716607
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -29579,7 +29588,7 @@ Light:
   serializedVersion: 11
   m_Type: 1
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_Intensity: 1
+  m_Intensity: 2
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -30206,6 +30215,73 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5204044362589272357, guid: b02c47b5bbd29b141adfc1b429806bef, type: 3}
   m_PrefabInstance: {fileID: 948154706}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &953697099
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 953697102}
+  - component: {fileID: 953697101}
+  - component: {fileID: 953697100}
+  m_Layer: 0
+  m_Name: Global Volume
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &953697100
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 953697099}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_IsGlobal: 1
+  priority: 0
+  blendDistance: 0
+  weight: 1
+  sharedProfile: {fileID: 11400000, guid: b3731824183667f4ebcd28cc7b13c6ba, type: 2}
+--- !u!114 &953697101
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 953697099}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_IsGlobal: 1
+  priority: 0
+  blendDistance: 0
+  weight: 1
+  sharedProfile: {fileID: 0}
+--- !u!4 &953697102
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 953697099}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 434.6239, y: 226.0161, z: 870.091}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &954342910
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -30551,14 +30627,14 @@ MonoBehaviour:
   halfTrackWidth: 500
   buildGround: 1
   groundY: 0
-  groundMaterial: {fileID: 2100000, guid: 04e76786572764f42bc16f2e09b888f5, type: 2}
+  groundMaterial: {fileID: 2100000, guid: e76f2537bbb3d3c4ab3b87109020f3cd, type: 2}
   addGroundCollider: 1
   groundColliderThickness: 0.2
   groundUVTilesPerUnit: {x: 0.1, y: 0.1}
   buildWalls: 1
   wallHeight: 2.5
   wallThickness: 0.25
-  wallMaterial: {fileID: 2100000, guid: 04e76786572764f42bc16f2e09b888f5, type: 2}
+  wallMaterial: {fileID: 2100000, guid: 3148deaf5d162be409a20995fdd04cbf, type: 2}
   addWallColliders: 1
   weightedObstaclePrefabs:
   - prefab: {fileID: 8365835069697184452, guid: b02c47b5bbd29b141adfc1b429806bef, type: 3}
@@ -50239,7 +50315,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 04e76786572764f42bc16f2e09b888f5, type: 2}
+  - {fileID: 2100000, guid: e76f2537bbb3d3c4ab3b87109020f3cd, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -68530,3 +68606,4 @@ SceneRoots:
   - {fileID: 1150796029}
   - {fileID: 1016093891}
   - {fileID: 961895187}
+  - {fileID: 953697102}

@@ -67,7 +67,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: 60ecd86be015deb45bf2b92965a0f574, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -160,6 +160,7 @@ GameObject:
   m_Component:
   - component: {fileID: 147845083436426771}
   - component: {fileID: 8574200078584063077}
+  - component: {fileID: 5831219340854706055}
   m_Layer: 0
   m_Name: SlidingGate
   m_TagString: Untagged
@@ -226,6 +227,24 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   slideAxis: {x: 1, y: 0, z: 0}
+--- !u!114 &5831219340854706055
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4695278530742921361}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5a8efab94c783204597b1e96c3c20915, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  emissionColor: {r: 0, g: 1, b: 1, a: 1}
+  intensity: 0.8
+  materialNameMustContain:
+  - glow
+  - trim
+  - emiss
 --- !u!1 &8450688422131229789
 GameObject:
   m_ObjectHideFlags: 0
@@ -293,7 +312,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: 60ecd86be015deb45bf2b92965a0f574, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
