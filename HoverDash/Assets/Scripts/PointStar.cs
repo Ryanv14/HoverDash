@@ -8,6 +8,10 @@ public class PointStar : MonoBehaviour
     [Header("Pickup")]
     [SerializeField] private int points = 10; // Value awarded on pickup
 
+    [Header("Audio")]
+    [SerializeField] private AudioClip collectSfx;
+    [SerializeField, Range(0f, 1f)] private float collectSfxVolume = 0.8f;
+
     [Header("Bobbing")]
     [SerializeField, Min(0f)] private float amplitude = 0.15f; // meters
     [SerializeField, Min(0f)] private float frequency = 1.0f;  // Hz
@@ -52,7 +56,7 @@ public class PointStar : MonoBehaviour
         Vector3 targetWorld = parent ? parent.TransformPoint(targetLocal) : targetLocal;
 
         if (rb != null)
-            rb.MovePosition(targetWorld);   
+            rb.MovePosition(targetWorld);
         else
             transform.position = targetWorld;
     }
@@ -61,8 +65,29 @@ public class PointStar : MonoBehaviour
     {
         if (!other.CompareTag("Player")) return;
 
+        // Play pickup sound as a 
+        PlayOneShot2D(collectSfx, collectSfxVolume);
+
         StarManager.Instance.AddStars(points); // Update global star count
         Destroy(gameObject);                   // Remove from scene
+    }
+
+    // Audio utility (2D global playback) 
+    private static void PlayOneShot2D(AudioClip clip, float volume)
+    {
+        if (!clip) return;
+
+        var go = new GameObject("OneShot2D_Audio");
+        var src = go.AddComponent<AudioSource>();
+        src.clip = clip;
+        src.volume = Mathf.Clamp01(volume);
+        src.spatialBlend = 0f;                 // 2D (global)
+        src.dopplerLevel = 0f;                 // no Doppler ever
+        src.playOnAwake = false;
+        src.loop = false;
+
+        src.Play();
+        Object.Destroy(go, clip.length);
     }
 
 #if UNITY_EDITOR
@@ -76,4 +101,3 @@ public class PointStar : MonoBehaviour
     }
 #endif
 }
-
