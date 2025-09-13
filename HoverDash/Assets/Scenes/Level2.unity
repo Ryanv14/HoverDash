@@ -23229,6 +23229,20 @@ MonoBehaviour:
   - {x: 0.7, y: 0, z: -0.7}
   - {x: -0.7, y: 0, z: -0.7}
   movementEnabled: 0
+  hoverLoop: {fileID: 0}
+  jumpSfx: {fileID: 0}
+  landSfx: {fileID: 0}
+  engineSource: {fileID: 0}
+  sfxSource: {fileID: 0}
+  basePitch: 1
+  pitchFromSpeed: 0.02
+  audioSmoothing: 8
+  maxPitch: 2
+  volumeWhenGrounded: 0.9
+  volumeWhenAirborne: 0.6
+  volumeBoostOnInput: 0.1
+  min3DDistance: 2
+  max3DDistance: 25
   groundMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -43068,6 +43082,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 02b2932413942944f99cb447db7f7add, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  BackendBaseUrl: https://hoverdash.onrender.com/
 --- !u!4 &1858756494 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4507300114894656622, guid: fb79cce96e308e54f8f84808d6aaa7f2, type: 3}

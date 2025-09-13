@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -6,15 +7,45 @@ import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 
 const app = express();
+
+// Security + JSON
 app.use(helmet());
 app.use(express.json({ limit: "32kb" }));
 
-app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000"], // add your game host(s) here
-  methods: ["GET","POST"]
-}));
+// ---- CORS ----
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:3000",
+];
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // allow curl/postman/no-origin
+      try {
+        const host = new URL(origin).host;
+        if (
+          allowedOrigins.includes(origin) ||
+          host.endsWith(".onrender.com") ||
+          host.endsWith(".itch.io") ||
+          host.endsWith(".hwcdn.net")
+        ) {
+          return cb(null, true);
+        }
+      } catch {}
+      return cb(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST"],
+  })
+);
 
-const apiLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true });
+// Rate limit
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+});
 app.use(apiLimiter);
 
 // ---- MongoDB ----
@@ -24,10 +55,10 @@ const db = client.db("game");
 const scores = db.collection("scores");
 const sessions = db.collection("sessions");
 
-// Indexes
+// Indexes 
 await scores.createIndex({ score: -1, createdAt: 1 });
 await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-await sessions.createIndex({ playerId: 1, levelId: 1, used: 1 });
+await sessions.createIndex({ levelId: 1, used: 1 });
 
 // ---- helpers ----
 function computeFinalScore(duration, stars) {
@@ -39,22 +70,27 @@ function computeFinalScore(duration, stars) {
 function sanitizeName(raw) {
   let n = String(raw ?? "").trim().replace(/\s+/g, " ");
   if (!n) n = "Anonymous";
-  if (n.length > 20) n = n.slice(0, 20);  // <- only enforced rule
+  if (n.length > 20) n = n.slice(0, 20);
   return n;
 }
 
 // ---- routes ----
+app.get("/", (_req, res) => res.json({ ok: true, message: "Game API is running." }));
+app.get("/healthz", (_req, res) => res.sendStatus(200));
 
 // Start: issue single-use session
 app.post("/start-level", async (req, res) => {
-  const { playerId, levelId } = req.body || {};
-  if (typeof playerId !== "string" || typeof levelId !== "string")
-    return res.status(400).json({ error: "Bad payload" });
+  const { levelId } = req.body || {};
+  if (typeof levelId !== "string") return res.status(400).json({ error: "Bad payload" });
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
   const { insertedId } = await sessions.insertOne({
-    playerId, levelId, startAt: now, used: false, createdAt: now, expiresAt
+    levelId,
+    startAt: now,
+    used: false,
+    createdAt: now,
+    expiresAt,
   });
   res.json({ sessionId: insertedId.toString() });
 });
@@ -62,14 +98,15 @@ app.post("/start-level", async (req, res) => {
 // Finish: compute score server-side + store `name`
 app.post("/finish-level", async (req, res) => {
   try {
-    const { playerId, levelId, sessionId, stars, name } = req.body || {};
-    if (typeof playerId !== "string" || typeof levelId !== "string" ||
-        typeof sessionId !== "string" || !Number.isInteger(stars)) {
+    const { levelId, sessionId, stars, name } = req.body || {};
+    if (typeof levelId !== "string" || typeof sessionId !== "string" || !Number.isInteger(stars)) {
       return res.status(400).json({ error: "Bad payload" });
     }
 
     const sess = await sessions.findOne({
-      _id: new ObjectId(sessionId), playerId, levelId, used: false
+      _id: new ObjectId(sessionId),
+      levelId,
+      used: false,
     });
     if (!sess) return res.status(400).json({ error: "Invalid or used session" });
 
@@ -81,7 +118,14 @@ app.post("/finish-level", async (req, res) => {
 
     await sessions.updateOne({ _id: sess._id, used: false }, { $set: { used: true, finishedAt: now } });
 
-    await scores.insertOne({ playerId, levelId, duration, stars, score, name: cleanName, createdAt: now });
+    await scores.insertOne({
+      levelId,
+      duration,
+      stars,
+      score,
+      name: cleanName,
+      createdAt: now,
+    });
 
     res.json({ ok: true, score });
   } catch (e) {
@@ -90,7 +134,7 @@ app.post("/finish-level", async (req, res) => {
   }
 });
 
-// Leaderboard: return just name + score
+// Leaderboard: return  name + score
 app.get("/leaderboard/:levelId", async (req, res) => {
   const levelId = req.params.levelId;
   const list = await scores
@@ -101,5 +145,6 @@ app.get("/leaderboard/:levelId", async (req, res) => {
   res.json(list);
 });
 
+// ---- start ----
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
+app.listen(port, () => console.log(`API listening on :${port}`));
