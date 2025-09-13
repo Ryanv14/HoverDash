@@ -8,44 +8,55 @@ import "dotenv/config";
 
 const app = express();
 
-// Security + JSON
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(express.json({ limit: "32kb" }));
 
 // ---- CORS ----
-const allowedOrigins = [
+const STATIC_ALLOWED = new Set([
   "http://localhost:5173",
   "http://localhost:3000",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:3000",
-];
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin) return cb(null, true); // allow curl/postman/no-origin
-      try {
-        const host = new URL(origin).host;
-        if (
-          allowedOrigins.includes(origin) ||
-          host.endsWith(".onrender.com") ||
-          host.endsWith(".itch.io") ||
-          host.endsWith(".hwcdn.net")
-        ) {
-          return cb(null, true);
-        }
-      } catch {}
-      return cb(new Error("Not allowed by CORS"));
-    },
-    methods: ["GET", "POST"],
-  })
-);
+]);
 
-// Rate limit
-const apiLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 60,
-  standardHeaders: true,
-});
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // allow curl/postman/no-origin
+  if (STATIC_ALLOWED.has(origin)) return true;
+  try {
+    const host = new URL(origin).host;
+    return (
+      host.endsWith(".onrender.com") ||
+      host.endsWith(".itch.io") ||
+      host.endsWith(".hwcdn.net") ||
+      host.endsWith(".itch.zone") ||   
+      host === "itch.zone" ||
+      host === "html.itch.zone" ||
+      host === "html-classic.itch.zone"
+    );
+  } catch {
+    return false;
+  }
+}
+
+const corsOptions = {
+  origin(origin, cb) {
+    if (isAllowedOrigin(origin)) return cb(null, true);
+    cb(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  maxAge: 86400
+};
+
+app.use((req, res, next) => { res.setHeader("Vary", "Origin"); next(); });
+app.use(cors(corsOptions));
+// Explicitly handle preflight anywhere:
+app.options("*", cors(corsOptions));
+
+// ---- Rate limit ----
+const apiLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true });
 app.use(apiLimiter);
 
 // ---- MongoDB ----
@@ -55,7 +66,7 @@ const db = client.db("game");
 const scores = db.collection("scores");
 const sessions = db.collection("sessions");
 
-// Indexes 
+// Indexes
 await scores.createIndex({ score: -1, createdAt: 1 });
 await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 await sessions.createIndex({ levelId: 1, used: 1 });
@@ -66,7 +77,6 @@ function computeFinalScore(duration, stars) {
   const s = Math.max(0, Math.min(9999, Number(stars) || 0));
   return (1000 / duration) * Math.sqrt(s);
 }
-
 function sanitizeName(raw) {
   let n = String(raw ?? "").trim().replace(/\s+/g, " ");
   if (!n) n = "Anonymous";
@@ -78,7 +88,7 @@ function sanitizeName(raw) {
 app.get("/", (_req, res) => res.json({ ok: true, message: "Game API is running." }));
 app.get("/healthz", (_req, res) => res.sendStatus(200));
 
-// Start: issue single-use session
+// Start session 
 app.post("/start-level", async (req, res) => {
   const { levelId } = req.body || {};
   if (typeof levelId !== "string") return res.status(400).json({ error: "Bad payload" });
@@ -86,16 +96,12 @@ app.post("/start-level", async (req, res) => {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
   const { insertedId } = await sessions.insertOne({
-    levelId,
-    startAt: now,
-    used: false,
-    createdAt: now,
-    expiresAt,
+    levelId, startAt: now, used: false, createdAt: now, expiresAt
   });
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish: compute score server-side + store `name`
+// Finish
 app.post("/finish-level", async (req, res) => {
   try {
     const { levelId, sessionId, stars, name } = req.body || {};
@@ -103,29 +109,16 @@ app.post("/finish-level", async (req, res) => {
       return res.status(400).json({ error: "Bad payload" });
     }
 
-    const sess = await sessions.findOne({
-      _id: new ObjectId(sessionId),
-      levelId,
-      used: false,
-    });
+    const sess = await sessions.findOne({ _id: new ObjectId(sessionId), levelId, used: false });
     if (!sess) return res.status(400).json({ error: "Invalid or used session" });
 
     const now = new Date();
     const duration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
-
     const cleanName = sanitizeName(name);
     const score = computeFinalScore(duration, stars);
 
     await sessions.updateOne({ _id: sess._id, used: false }, { $set: { used: true, finishedAt: now } });
-
-    await scores.insertOne({
-      levelId,
-      duration,
-      stars,
-      score,
-      name: cleanName,
-      createdAt: now,
-    });
+    await scores.insertOne({ levelId, duration, stars, score, name: cleanName, createdAt: now });
 
     res.json({ ok: true, score });
   } catch (e) {
@@ -134,7 +127,7 @@ app.post("/finish-level", async (req, res) => {
   }
 });
 
-// Leaderboard: return  name + score
+// Leaderboard
 app.get("/leaderboard/:levelId", async (req, res) => {
   const levelId = req.params.levelId;
   const list = await scores
@@ -145,6 +138,5 @@ app.get("/leaderboard/:levelId", async (req, res) => {
   res.json(list);
 });
 
-// ---- start ----
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`API listening on :${port}`));
