@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 1536
     height: 772.8
   m_ShowMode: 4
-  m_Title: Inspector
+  m_Title: Game
   m_RootView: {fileID: 6}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -48,7 +48,7 @@ MonoBehaviour:
   m_MinSize: {x: 300, y: 100}
   m_MaxSize: {x: 24288, y: 16192}
   vertical: 0
-  controlID: 110
+  controlID: 107
   draggingID: 0
 --- !u!114 &3
 MonoBehaviour:
@@ -326,7 +326,7 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/Prefabs
+    - Assets
     m_Globs: []
     m_ProductIds: 
     m_AnyWithAssetOrigin: 0
@@ -336,16 +336,16 @@ MonoBehaviour:
   m_ViewMode: 1
   m_StartGridSize: 64
   m_LastFolders:
-  - Assets/Prefabs
+  - Assets
   m_LastFoldersGridSize: -1
   m_LastProjectPath: C:\Users\Ryan\OneDrive\Uni\HoverDash\HoverDash
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
-    scrollPos: {x: 0, y: 22.000427}
-    m_SelectedIDs: 1ac00000
-    m_LastClickedID: 49178
-    m_ExpandedIDs: 00000000b2bf0000ffffff7f
+    scrollPos: {x: 0, y: 0}
+    m_SelectedIDs: 6cbb0000
+    m_LastClickedID: 47980
+    m_ExpandedIDs: 000000006cbb0000ffffff7f
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -374,7 +374,7 @@ MonoBehaviour:
     scrollPos: {x: 0, y: 0}
     m_SelectedIDs: 
     m_LastClickedID: 0
-    m_ExpandedIDs: 00000000b2bf0000
+    m_ExpandedIDs: 000000006cbb0000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -475,7 +475,7 @@ MonoBehaviour:
     m_ControlHash: -371814159
     m_PrefName: Preview_InspectorPreview
   m_LastInspectedObjectInstanceID: -1
-  m_LastVerticalScrollValue: 300.8
+  m_LastVerticalScrollValue: 0
   m_GlobalObjectId: 
   m_InspectorMode: 0
   m_LockTracker:
@@ -522,7 +522,7 @@ MonoBehaviour:
       scrollPos: {x: 0, y: 0}
       m_SelectedIDs: 
       m_LastClickedID: 0
-      m_ExpandedIDs: aa55fffffc56ffffea9dffffaec6ffff86caffffb0cafffff4faffff
+      m_ExpandedIDs: ea58ffff345affffcea0ffff40c9ffffe2ccffff06cdfffff6faffffdead000098b10000deb50000
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -1070,9 +1070,9 @@ MonoBehaviour:
   m_AudioPlay: 0
   m_DebugDrawModesUseInteractiveLightBakingData: 0
   m_Position:
-    m_Target: {x: 436.68, y: 185.53679, z: 9.800001}
+    m_Target: {x: 436.68, y: 187.48, z: 492.5}
     speed: 2
-    m_Value: {x: 436.68, y: 185.53679, z: 9.800001}
+    m_Value: {x: 436.68, y: 187.48, z: 492.5}
   m_RenderMode: 0
   m_CameraMode:
     drawMode: 0
@@ -1118,13 +1118,13 @@ MonoBehaviour:
     m_GridAxis: 1
     m_gridOpacity: 0.5
   m_Rotation:
-    m_Target: {x: 0.074171625, y: 0.065768756, z: -0.004901801, w: 0.99509054}
+    m_Target: {x: -0.23111664, y: 0.1045442, z: -0.02498725, w: -0.96697104}
     speed: 2
-    m_Value: {x: -0.074171625, y: -0.065768756, z: 0.004901801, w: -0.99509054}
+    m_Value: {x: -0.23111664, y: 0.1045442, z: -0.02498725, w: -0.966971}
   m_Size:
-    m_Target: 1.5559434
+    m_Target: 10
     speed: 2
-    m_Value: 1.5559434
+    m_Value: 10
   m_Ortho:
     m_Target: 0
     speed: 2
