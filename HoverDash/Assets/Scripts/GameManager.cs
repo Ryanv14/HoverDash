@@ -178,7 +178,6 @@ public class GameManager : MonoBehaviour
 
         if (isLeaderboardLevel && lb != null)
         {
-            lb.ClearSession(); // <<< IMPORTANT: drop any stale/used session id
             StartCoroutine(lb.StartLevel(leaderboardLevelId));
         }
     }
@@ -213,7 +212,7 @@ public class GameManager : MonoBehaviour
         {
             if (namePrompt != null)
             {
-                // Show prompt; capture the confirmed name, but DO NOT submit yet.
+                // Show prompt; capture the confirmed name, but do not submit yet.
                 string prefill = "";
                 namePrompt.Show(
                     prefill: prefill,
@@ -273,29 +272,23 @@ public class GameManager : MonoBehaviour
         if (lb != null)
             yield return lb.EnsureSession(leaderboardLevelId);
 
-        // Use the duration-aware overload (client sends frozenDuration)
+        // Use the duration-aware overload 
         yield return lb.FinishLevel(
             leaderboardLevelId,
             stars,
             name,
-            frozenDuration,
+            frozenDuration,                    
+            ScoreManager.Instance.FrozenScore, 
             serverScore =>
             {
-                ScoreManager.Instance.ApplyServerScore(serverScore);
-                UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
-                canSubmit = false;
-                isSubmitting = false;
                 MaybeShowLeaderboard();
             },
             err =>
             {
                 Debug.LogError("[GM] FinishLevel failed: " + err);
-                // allow retry
-                isSubmitting = false;
-                // optional: still show leaderboard (local)
                 MaybeShowLeaderboard();
             }
-        );
+        );      
     }
 
     private void MaybeShowLeaderboard()

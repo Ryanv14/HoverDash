@@ -128,6 +128,7 @@ app.post("/start-level", async (req, res) => {
 });
 
 // Finish (idempotent; accepts previously-used sessions and returns the same score)
+// Prefers client-provided snapshot (clientScore) if present and sane.
 app.post("/finish-level", async (req, res) => {
   noStore(res);
   const {
@@ -136,6 +137,7 @@ app.post("/finish-level", async (req, res) => {
     stars,
     name,
     clientDurationSeconds,
+    clientScore, // NEW
   } = req.body || {};
 
   console.log("finish-level body", {
@@ -144,6 +146,7 @@ app.post("/finish-level", async (req, res) => {
     stars,
     name,
     clientDurationSeconds,
+    clientScore,
   });
 
   try {
@@ -160,13 +163,15 @@ app.post("/finish-level", async (req, res) => {
 
     const _id = new ObjectId(sessionId);
 
-    // 1) Look up the session (do NOT require used:false here)
+    // 1) Look up the session (do NOT require used:false)
     const sess = await sessions.findOne({ _id, levelId });
     if (!sess) {
-      // if it exists but levelId differs, tell us what happened
       const dbg = await sessions.findOne({ _id });
       console.warn("finish-level session lookup", {
-        found: !!dbg, used: dbg?.used, levelIdOnSession: dbg?.levelId, providedLevelId: levelId
+        found: !!dbg,
+        used: dbg?.used,
+        levelIdOnSession: dbg?.levelId,
+        providedLevelId: levelId,
       });
       return res.status(400).json({ error: "Invalid or used session" });
     }
@@ -188,21 +193,31 @@ app.post("/finish-level", async (req, res) => {
     }
 
     const cleanName = sanitizeName(name);
-    const score = computeFinalScore(duration, stars);
 
-    // 3) Try to insert score (unique on sessionId). If already present, return it.
+    // 3) Compute serverScore, but prefer a sane clientScore if provided
+    const serverScore = computeFinalScore(duration, stars);
+    const hasClientScore =
+      Number.isFinite(clientScore) &&
+      clientScore >= 0 &&
+      clientScore < 1e9;
+
+    const finalScore = hasClientScore ? Number(clientScore) : serverScore;
+
+    // 4) Try to insert score (unique on sessionId). If already present, return it.
     try {
       await scores.insertOne({
         sessionId: _id,
         levelId,
         stars,
         name: cleanName,
-        score,
-        duration,
-        serverDuration,
+        score: finalScore, // what counts on the leaderboard
+        scoreSource: hasClientScore ? "client" : "server",
+        duration, // chosen duration
+        serverDuration, // diagnostics
         clientDurationSeconds: Number.isFinite(clientDurationSeconds)
           ? clientDurationSeconds
           : null,
+        clientScore: hasClientScore ? Number(clientScore) : null,
         createdAt: now,
       });
     } catch (e) {
@@ -214,22 +229,24 @@ app.post("/finish-level", async (req, res) => {
         );
         if (prev) {
           // Best-effort mark session used
-          await sessions.updateOne({ _id }, { $set: { used: true, finishedAt: now } });
+          await sessions.updateOne(
+            { _id },
+            { $set: { used: true, finishedAt: now } }
+          );
           return res.json({ ok: true, score: prev.score });
         }
-        // Duplicate without a readable score is odd; fall through and 500
-        throw e;
+        throw e; // fall through to 500 if something odd happened
       }
       throw e;
     }
 
-    // 4) Best-effort mark session used (even if already true)
+    // 5) Best-effort mark session used (even if already true)
     await sessions.updateOne(
       { _id },
       { $set: { used: true, finishedAt: now } }
     );
 
-    res.json({ ok: true, score });
+    res.json({ ok: true, score: finalScore });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

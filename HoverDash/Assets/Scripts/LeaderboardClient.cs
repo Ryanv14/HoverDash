@@ -15,14 +15,9 @@ public class LeaderboardClient : MonoBehaviour
     public int TimeoutSeconds = 20;
 
     private string sessionId;
-    private const string UsedSessionErrorMarker = "Invalid or used session";
 
     // --- Public API ---
 
-    /// <summary>Clear any cached session id. Call this at the start of a new run.</summary>
-    public void ClearSession() => sessionId = null;
-
-    // Start a level session (call when the player actually starts)
     public IEnumerator StartLevel(string levelId, Action<string> onOk = null, Action<string> onErr = null)
     {
         var url = $"{BackendBaseUrl}/start-level";
@@ -47,24 +42,28 @@ public class LeaderboardClient : MonoBehaviour
 
             var resp = JsonUtility.FromJson<StartLevelResp>(req.downloadHandler.text);
             sessionId = resp.sessionId;
-            Debug.Log($"[LB] /start-level -> sessionId={sessionId}");
             onOk?.Invoke(sessionId);
         }
     }
 
-    // Finish a level (no duration sent; server uses its own measured duration)
+    // Finish (no client data) => server measures
     public IEnumerator FinishLevel(string levelId, int stars, string name, Action<double> onDone, Action<string> onErr = null)
     {
-        yield return FinishInternal(levelId, stars, name, 0f, onDone, onErr, retried: false);
+        yield return FinishInternal(levelId, stars, name, 0f, 0f, onDone, onErr);
     }
 
-    // Finish a level (duration-aware; sends client frozen duration to server)
+    // Finish with frozen duration (old behavior)
     public IEnumerator FinishLevel(string levelId, int stars, string name, float clientDurationSeconds, Action<double> onDone, Action<string> onErr = null)
     {
-        yield return FinishInternal(levelId, stars, name, clientDurationSeconds, onDone, onErr, retried: false);
+        yield return FinishInternal(levelId, stars, name, clientDurationSeconds, 0f, onDone, onErr);
     }
 
-    // Ensure session exists (useful if you might call Finish before Start)
+    // NEW: Finish with frozen duration AND frozen score
+    public IEnumerator FinishLevel(string levelId, int stars, string name, float clientDurationSeconds, float clientScore, Action<double> onDone, Action<string> onErr = null)
+    {
+        yield return FinishInternal(levelId, stars, name, clientDurationSeconds, clientScore, onDone, onErr);
+    }
+
     public IEnumerator EnsureSession(string levelId, Action onOk = null, Action<string> onErr = null)
     {
         if (!string.IsNullOrEmpty(sessionId))
@@ -75,7 +74,6 @@ public class LeaderboardClient : MonoBehaviour
         yield return StartLevel(levelId, _ => onOk?.Invoke(), onErr);
     }
 
-    // Get leaderboard
     public IEnumerator GetLeaderboard(string levelId, Action<ScoreRow[]> onOk, Action<string> onErr)
     {
         var url = $"{BackendBaseUrl}/leaderboard/{UnityWebRequest.EscapeURL(levelId)}";
@@ -99,37 +97,28 @@ public class LeaderboardClient : MonoBehaviour
 
     // --- Internals ---
 
-    private IEnumerator FinishInternal(
-        string levelId,
-        int stars,
-        string name,
-        float clientDurationSeconds,
-        Action<double> onDone,
-        Action<string> onErr,
-        bool retried)
+    private IEnumerator FinishInternal(string levelId, int stars, string name, float clientDurationSeconds, float clientScore, Action<double> onDone, Action<string> onErr)
     {
-        // Make sure we have a session (but it could still be stale/used; we handle that below)
         if (string.IsNullOrEmpty(sessionId))
         {
             yield return StartLevel(levelId, _ => { }, onErr);
-            if (string.IsNullOrEmpty(sessionId)) yield break;
+            if (string.IsNullOrEmpty(sessionId))
+                yield break;
         }
 
         var url = $"{BackendBaseUrl}/finish-level";
         var safeName = string.IsNullOrWhiteSpace(name) ? "Anonymous" : name.Trim();
         if (safeName.Length > 20) safeName = safeName.Substring(0, 20);
 
-        var payloadObj = new FinishLevelReq
+        var payload = JsonUtility.ToJson(new FinishLevelReq
         {
             levelId = levelId,
             sessionId = sessionId,
             stars = stars,
             name = safeName,
-            clientDurationSeconds = clientDurationSeconds
-        };
-        var payload = JsonUtility.ToJson(payloadObj);
-
-        Debug.Log($"[LB] /finish-level payload: {{ levelId:'{levelId}', sessionId:'{sessionId}', stars:{stars}, name:'{safeName}', clientDurationSeconds:{clientDurationSeconds:F3} }}");
+            clientDurationSeconds = clientDurationSeconds,
+            clientScore = clientScore
+        });
 
         using (var req = new UnityWebRequest(url, "POST"))
         {
@@ -144,27 +133,7 @@ public class LeaderboardClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                string bodyText = req.downloadHandler?.text ?? "";
-                // If we hit "Invalid or used session", refresh the session and retry once automatically
-                if (!retried &&
-                    req.responseCode == 400 &&
-                    !string.IsNullOrEmpty(bodyText) &&
-                    bodyText.Contains(UsedSessionErrorMarker, StringComparison.OrdinalIgnoreCase))
-                {
-                    Debug.LogWarning("[LB] Finish failed with used/invalid session; refreshing session and retrying once.");
-                    // force a new session
-                    sessionId = null;
-                    yield return StartLevel(levelId, _ => { }, err => Debug.LogWarning("[LB] Retry StartLevel failed: " + err));
-                    if (!string.IsNullOrEmpty(sessionId))
-                    {
-                        yield return FinishInternal(levelId, stars, name, clientDurationSeconds, onDone, onErr, retried: true);
-                        yield break;
-                    }
-                    onErr?.Invoke("Finish failed: could not establish session after retry.");
-                    yield break;
-                }
-
-                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error} - body: {bodyText}");
+                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}");
                 yield break;
             }
 
@@ -185,11 +154,11 @@ public class LeaderboardClient : MonoBehaviour
         public string sessionId;
         public int stars;
         public string name;
-        public float clientDurationSeconds; // optional; server uses if > 0 and plausible
+        public float clientDurationSeconds;
+        public float clientScore; // NEW
     }
 
     [Serializable] public class ScoreRow { public string name; public double score; }
-
     [Serializable] private class FinishLevelResp { public bool ok; public double score; }
 
     // JsonUtility helper for top-level arrays
