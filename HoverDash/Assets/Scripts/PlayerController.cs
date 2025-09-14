@@ -316,7 +316,8 @@ public class HoverVehicleController : MonoBehaviour
         if (Time.time - lastJumpTime < jumpCooldown) return;
         if (!IsGrounded()) return;
 
-        if (StarManager.Instance != null && StarManager.Instance.SpendStars(jumpCost))
+        // IMPORTANT CHANGE: Use SpendForJump so Zen levels don't charge stars.
+        if (StarManager.Instance != null && StarManager.Instance.SpendForJump(jumpCost))
         {
             var v = rb.linearVelocity;
             if (v.y < 0f) v.y = 0f;

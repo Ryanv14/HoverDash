@@ -10,6 +10,8 @@ public class GameManager : MonoBehaviour
     private const string leaderboardSceneName = "Level2"; // change if needed
     private const string leaderboardLevelId = "level-2";
 
+    [SerializeField] private string zenLevelSceneName = "ZenLevel";
+
     [Header("UI Panels (GameObjects)")]
     [SerializeField] private GameObject namePromptUI;    // Panel with NamePromptUI
     [SerializeField] private GameObject leaderboardUI;   // Panel with LeaderboardUI 
@@ -40,8 +42,8 @@ public class GameManager : MonoBehaviour
 
     // Pending submission data (set at finish; used on Submit)
     private int pendingStars = 0;
-    private float pendingDuration = 0f;
-    private string pendingName = "";  
+    private float pendingDuration = 0f; // FROZEN duration snapshot
+    private string pendingName = "";
     private bool canSubmit = false;
     private bool isSubmitting = false;
 
@@ -51,7 +53,11 @@ public class GameManager : MonoBehaviour
     private void Awake()
     {
         RebindAll();
-        isLeaderboardLevel = SceneManager.GetActiveScene().name == leaderboardSceneName;
+        var scene = SceneManager.GetActiveScene();
+        isLeaderboardLevel = scene.name == leaderboardSceneName;
+
+        // Set Zen free-jumps flag for this scene
+        SetZenRules(scene.name);
 
         if (isLeaderboardLevel && lb == null)
             Debug.LogWarning("Level 2 is a leaderboard level but no LeaderboardClient was found.");
@@ -62,19 +68,18 @@ public class GameManager : MonoBehaviour
     private void Update()
     {
         if (waitingForPlayerStart && Input.GetKeyDown(KeyCode.W))
-        {
             BeginRunNow();
-        }
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         RebindAll();
         isLeaderboardLevel = scene.name == leaderboardSceneName;
+        SetZenRules(scene.name);
         PrepareRunGate();
     }
 
-    // binding & helpers 
+    // ---------------- binding & helpers ----------------
     private void RebindAll()
     {
         lb = FindFirstObjectByType<LeaderboardClient>(FindObjectsInactive.Include);
@@ -88,14 +93,11 @@ public class GameManager : MonoBehaviour
 
         if (!namePromptUI && !string.IsNullOrWhiteSpace(namePromptObjectName))
             namePromptUI = FindSceneObjectByName(namePromptObjectName);
-
         if (!leaderboardUI && !string.IsNullOrWhiteSpace(leaderboardObjectName))
             leaderboardUI = FindSceneObjectByName(leaderboardObjectName);
-
         if (!startPromptUI && !string.IsNullOrWhiteSpace(startPromptObjectName))
             startPromptUI = FindSceneObjectByName(startPromptObjectName);
 
-        // Lazy hook the input if not set
         if (!nameInput && namePromptUI)
             nameInput = namePromptUI.GetComponentInChildren<TMP_InputField>(true);
 
@@ -128,7 +130,16 @@ public class GameManager : MonoBehaviour
         UIManager.Instance.HideGameOver();
     }
 
-    // run flow 
+    private void SetZenRules(string sceneName)
+    {
+        // If you created the GameRules static class:
+        // GameRules.JumpsAreFreeThisScene = (sceneName == zenLevelSceneName);
+        // If you don’t have that class, remove this line and keep your own toggle wherever you deduct stars.
+        try { GameRules.JumpsAreFreeThisScene = (sceneName == zenLevelSceneName); }
+        catch { /* GameRules not present; ignore */ }
+    }
+
+    // ---------------- run flow ----------------
     private void PrepareRunGate()
     {
         HidePanelsAtRunStart();
@@ -142,7 +153,6 @@ public class GameManager : MonoBehaviour
         if (player)
         {
             player.SetMovementEnabled(false);
-            // legacy aliases 
             player.SetControlsEnabled(false);
             player.ZeroOutVelocity();
         }
@@ -182,7 +192,6 @@ public class GameManager : MonoBehaviour
         }
     }
 
-
     public void StartLevel() => PrepareRunGate();
 
     public void FinishRun()
@@ -193,16 +202,16 @@ public class GameManager : MonoBehaviour
         if (player)
         {
             player.SetMovementEnabled(false);
-            player.SetControlsEnabled(false); // legacy alias
+            player.SetControlsEnabled(false);
             player.ZeroOutVelocity();
         }
 
         // Freeze score/time immediately (visual + local)
-        ScoreManager.Instance.FinishLevel();
-        UIManager.Instance.StopTimer(); 
+        ScoreManager.Instance.FinishLevel();          // sets FinishedDuration + FinalScore (snapshot)
+        UIManager.Instance.StopTimer();
         UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
 
-        // Cache data for later manual submission
+        // Cache data for later manual submission (SNAPSHOTS)
         pendingDuration = ScoreManager.Instance.FinishedDuration;
         pendingStars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
         canSubmit = true;
@@ -221,19 +230,16 @@ public class GameManager : MonoBehaviour
                         pendingName = string.IsNullOrWhiteSpace(confirmedName) ? "Anonymous" : confirmedName.Trim();
                         if (pendingName.Length > 20) pendingName = pendingName.Substring(0, 20);
 
-                        // Also sync the visible input if present
                         if (!nameInput && namePromptUI)
                             nameInput = namePromptUI.GetComponentInChildren<TMP_InputField>(true);
                         if (nameInput) nameInput.text = pendingName;
                     },
-                    onCancel: () =>
-                    {
-                    }
+                    onCancel: () => { }
                 );
             }
             else
             {
-                Debug.LogWarning("[GM] NamePromptUI component not found; cannot ask for a name. Keeping local score only.");
+                Debug.LogWarning("[GM] NamePromptUI not found; cannot ask for a name. You can still submit using the input field.");
             }
         }
     }
@@ -272,15 +278,17 @@ public class GameManager : MonoBehaviour
         if (lb != null)
             yield return lb.EnsureSession(leaderboardLevelId);
 
-        // Use the duration-aware overload 
+        // Send the FROZEN duration; do NOT recompute here.
+        // Use the duration-aware overload that your current LeaderboardClient already has:
         yield return lb.FinishLevel(
             leaderboardLevelId,
             stars,
             name,
-            frozenDuration,                    
-            ScoreManager.Instance.FrozenScore, 
+            frozenDuration,                 // <-- snapshot duration
             serverScore =>
             {
+                // Do NOT overwrite the local UI score; keep the frozen snapshot visible.
+                // If you want to reconcile for analytics only, you can store it but don't display it.
                 MaybeShowLeaderboard();
             },
             err =>
@@ -288,7 +296,7 @@ public class GameManager : MonoBehaviour
                 Debug.LogError("[GM] FinishLevel failed: " + err);
                 MaybeShowLeaderboard();
             }
-        );      
+        );
     }
 
     private void MaybeShowLeaderboard()
