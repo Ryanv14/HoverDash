@@ -173,12 +173,16 @@ public class GameManager : MonoBehaviour
         if (player)
         {
             player.SetMovementEnabled(true);
-            player.SetControlsEnabled(true); // legacy alias
+            player.SetControlsEnabled(true);
         }
 
         if (isLeaderboardLevel && lb != null)
+        {
+            lb.ClearSession(); // <<< IMPORTANT: drop any stale/used session id
             StartCoroutine(lb.StartLevel(leaderboardLevelId));
+        }
     }
+
 
     public void StartLevel() => PrepareRunGate();
 

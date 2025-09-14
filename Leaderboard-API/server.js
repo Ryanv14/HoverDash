@@ -102,6 +102,30 @@ function noStore(res) {
   res.set("Cache-Control", "no-store");
 }
 
+// --- DEBUG ROUTES (TEMPORARY) ---
+app.get("/debug/session/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "bad id" });
+    const doc = await sessions.findOne({ _id: new ObjectId(id) });
+    return res.json({
+      found: !!doc,
+      used: doc?.used ?? null,
+      levelId: doc?.levelId ?? null,
+      startAt: doc?.startAt ?? null,
+      createdAt: doc?.createdAt ?? null,
+      expiresAt: doc?.expiresAt ?? null,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "debug session error" });
+  }
+});
+
+app.get("/debug/ping", (_req, res) => {
+  res.json({ ok: true, envDb: process.env.MONGODB_URI ? "set" : "unset" });
+});
+
 // ---- routes ----
 app.get("/", (_req, res) => {
   noStore(res);
