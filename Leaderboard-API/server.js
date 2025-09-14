@@ -163,23 +163,20 @@ app.post("/finish-level", async (req, res) => {
     const now = new Date();
 
     // Atomically mark the session as used and read its previous data
+    // NOTE: we *do not* filter on levelId here to avoid false 400s due to mismatch.
     const { value: sess } = await sessions.findOneAndUpdate(
-      { _id: new ObjectId(sessionId), levelId, used: false },
+      { _id: new ObjectId(sessionId), used: false },
       { $set: { used: true, finishedAt: now } },
       { returnDocument: "before" }
     );
 
     if (!sess) {
-      // Either invalid session OR already used.
-      // If already used, return the previously computed score (idempotency).
+      // Already used or invalid. If already used, return the previously computed score (idempotency).
       const prev = await scores.findOne(
         { sessionId: new ObjectId(sessionId) },
         { projection: { _id: 0, score: 1 } }
       );
-
-      if (prev) {
-        return res.json({ ok: true, score: prev.score });
-      }
+      if (prev) return res.json({ ok: true, score: prev.score });
 
       // For debugging, see what exists
       const dbg = await sessions.findOne({ _id: new ObjectId(sessionId) });
@@ -187,9 +184,18 @@ app.post("/finish-level", async (req, res) => {
         found: !!dbg,
         used: dbg?.used,
         levelIdOnSession: dbg?.levelId,
+        providedLevelId: levelId,
       });
 
       return res.status(400).json({ error: "Invalid or used session" });
+    }
+
+    // If the provided levelId is different from the session's, log it (we'll still proceed).
+    if (sess.levelId !== levelId) {
+      console.warn("finish-level levelId mismatch", {
+        sessionLevelId: sess.levelId,
+        providedLevelId: levelId,
+      });
     }
 
     const serverDuration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
@@ -212,7 +218,7 @@ app.post("/finish-level", async (req, res) => {
 
     await scores.insertOne({
       sessionId: new ObjectId(sessionId), // for idempotency
-      levelId,
+      levelId: sess.levelId,              // trust the session's level id
       stars,
       name: cleanName,
       score,
