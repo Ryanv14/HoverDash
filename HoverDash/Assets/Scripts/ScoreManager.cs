@@ -8,19 +8,15 @@ public class ScoreManager : MonoBehaviour
     private float startTime;
     private bool running;
 
-    // What the UI should show
     public float FinalScore { get; private set; }
-
-    // Frozen at finish line; sent to server
     public float FinishedDuration { get; private set; }
 
     public float FrozenScore { get; private set; }
-    public bool ScoreLocked { get; private set; }
+    public int FrozenStars { get; private set; }
 
     private void Awake()
     {
-        if (Instance == null) Instance = this;
-        else Destroy(gameObject);
+        if (Instance == null) Instance = this; else Destroy(gameObject);
     }
 
     private void Start()
@@ -29,7 +25,7 @@ public class ScoreManager : MonoBehaviour
         FinalScore = 0f;
         FinishedDuration = 0f;
         FrozenScore = 0f;
-        ScoreLocked = false;
+        FrozenStars = 0;
     }
 
     public void StartRun()
@@ -38,7 +34,7 @@ public class ScoreManager : MonoBehaviour
         FinalScore = 0f;
         FinishedDuration = 0f;
         FrozenScore = 0f;
-        ScoreLocked = false;
+        FrozenStars = 0;
         running = true;
     }
 
@@ -46,30 +42,22 @@ public class ScoreManager : MonoBehaviour
     {
         if (!running) return;
 
-        float duration = Time.time - startTime;
-        FinishedDuration = Mathf.Max(0f, duration);
+        float duration = Mathf.Max(0f, Time.time - startTime);
+        FinishedDuration = duration;
 
-        int stars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
+        int stars = StarManager.Instance ? StarManager.Instance.Stars : 0;
 
-        float score = stars * (1000f / Mathf.Max(0.0001f, FinishedDuration));
+        FinalScore = Mathf.Max(0.0f, stars * (1000f / Mathf.Max(0.0001f, duration)));
 
-        FinalScore = Mathf.Max(0f, score);
-
-        // Snapshot + lock for the UI
+        // snapshot for submission
+        FrozenStars = stars;
         FrozenScore = FinalScore;
-        ScoreLocked = true;
 
         running = false;
     }
 
-    // Called when server replies
     public void ApplyServerScore(double serverScore)
     {
-        if (!ScoreLocked)
-        {
-            FinalScore = Mathf.Max(0f, (float)serverScore);
-        }
+        FinalScore = Mathf.Max(0f, (float)serverScore);
     }
 }
-
-

@@ -274,21 +274,20 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator SubmitAfterName(string name, int stars, float frozenDuration)
     {
-        // Ensure session
         if (lb != null)
             yield return lb.EnsureSession(leaderboardLevelId);
 
-        // Send the FROZEN duration; do NOT recompute here.
-        // Use the duration-aware overload that your current LeaderboardClient already has:
+        var snapScore = ScoreManager.Instance ? ScoreManager.Instance.FrozenScore : 0f;
+        if (snapScore <= 0f) snapScore = ScoreManager.Instance.FinalScore; // fallback
+
         yield return lb.FinishLevel(
             leaderboardLevelId,
             stars,
             name,
-            frozenDuration,                 // <-- snapshot duration
+            frozenDuration,
+            snapScore,                           
             serverScore =>
             {
-                // Do NOT overwrite the local UI score; keep the frozen snapshot visible.
-                // If you want to reconcile for analytics only, you can store it but don't display it.
                 MaybeShowLeaderboard();
             },
             err =>
@@ -298,6 +297,7 @@ public class GameManager : MonoBehaviour
             }
         );
     }
+
 
     private void MaybeShowLeaderboard()
     {

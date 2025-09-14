@@ -84,11 +84,6 @@ await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 await sessions.createIndex({ levelId: 1, used: 1 });
 
 // ---- helpers ----
-function computeFinalScore(duration, stars) {
-  if (!isFinite(duration) || duration <= 0) return 0;
-  const s = Math.max(0, Math.min(9999, Number(stars) || 0));
-  return (1000 / duration) * Math.sqrt(s);
-}
 function sanitizeName(raw) {
   let n = String(raw ?? "").trim().replace(/\s+/g, " ");
   if (!n) n = "Anonymous";
@@ -97,6 +92,9 @@ function sanitizeName(raw) {
 }
 function noStore(res) {
   res.set("Cache-Control", "no-store");
+}
+function isFiniteNumber(n) {
+  return typeof n === "number" && Number.isFinite(n);
 }
 
 // ---- routes ----
@@ -127,8 +125,8 @@ app.post("/start-level", async (req, res) => {
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish (idempotent; accepts previously-used sessions and returns the same score)
-// Prefers client-provided snapshot (clientScore) if present and sane.
+// Finish: ONLY accept client snapshot score. Never compute on server.
+// If clientScore missing/invalid => reject (no insert, no "used" mark).
 app.post("/finish-level", async (req, res) => {
   noStore(res);
   const {
@@ -136,8 +134,8 @@ app.post("/finish-level", async (req, res) => {
     sessionId,
     stars,
     name,
-    clientDurationSeconds,
-    clientScore, // NEW
+    clientDurationSeconds, // optional; stored for analytics only
+    clientScore,           // REQUIRED: this is the only score we will store
   } = req.body || {};
 
   console.log("finish-level body", {
@@ -150,6 +148,7 @@ app.post("/finish-level", async (req, res) => {
   });
 
   try {
+    // Validate payload (stars still required so you can store it with the score doc)
     if (
       typeof levelId !== "string" ||
       typeof sessionId !== "string" ||
@@ -161,9 +160,14 @@ app.post("/finish-level", async (req, res) => {
       return res.status(400).json({ error: "Invalid session id" });
     }
 
+    // Require a finite clientScore (>= 0 allowed; if you want to forbid 0, change to > 0)
+    if (!isFiniteNumber(clientScore) || clientScore < 0 || clientScore >= 1e9) {
+      return res.status(400).json({ error: "Missing or invalid clientScore" });
+    }
+
     const _id = new ObjectId(sessionId);
 
-    // 1) Look up the session (do NOT require used:false)
+    // Look up session (do NOT require used:false); reject if not found / wrong level
     const sess = await sessions.findOne({ _id, levelId });
     if (!sess) {
       const dbg = await sessions.findOne({ _id });
@@ -177,47 +181,24 @@ app.post("/finish-level", async (req, res) => {
     }
 
     const now = new Date();
-    const serverDuration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
 
-    // 2) Prefer client frozen duration if plausible and close to server
-    let duration = serverDuration;
-    if (
-      Number.isFinite(clientDurationSeconds) &&
-      clientDurationSeconds > 0 &&
-      clientDurationSeconds < 60 * 60
-    ) {
-      const diff = Math.abs(clientDurationSeconds - serverDuration);
-      if (diff <= 5 || serverDuration < 1) {
-        duration = clientDurationSeconds;
-      }
-    }
+    // Store the snapshot score exactly as provided
+    const durationStored =
+      isFiniteNumber(clientDurationSeconds) && clientDurationSeconds >= 0 && clientDurationSeconds < 60 * 60
+        ? clientDurationSeconds
+        : null;
 
-    const cleanName = sanitizeName(name);
-
-    // 3) Compute serverScore, but prefer a sane clientScore if provided
-    const serverScore = computeFinalScore(duration, stars);
-    const hasClientScore =
-      Number.isFinite(clientScore) &&
-      clientScore >= 0 &&
-      clientScore < 1e9;
-
-    const finalScore = hasClientScore ? Number(clientScore) : serverScore;
-
-    // 4) Try to insert score (unique on sessionId). If already present, return it.
     try {
       await scores.insertOne({
         sessionId: _id,
         levelId,
         stars,
-        name: cleanName,
-        score: finalScore, // what counts on the leaderboard
-        scoreSource: hasClientScore ? "client" : "server",
-        duration, // chosen duration
-        serverDuration, // diagnostics
-        clientDurationSeconds: Number.isFinite(clientDurationSeconds)
-          ? clientDurationSeconds
-          : null,
-        clientScore: hasClientScore ? Number(clientScore) : null,
+        name: sanitizeName(name),
+        score: Number(clientScore),            // ONLY the client snapshot counts
+        scoreSource: "client",
+        duration: durationStored,              // for analytics/UX
+        clientDurationSeconds: durationStored, // duplicate for clarity
+        clientScore: Number(clientScore),      // store raw snapshot too
         createdAt: now,
       });
     } catch (e) {
@@ -233,20 +214,28 @@ app.post("/finish-level", async (req, res) => {
             { _id },
             { $set: { used: true, finishedAt: now } }
           );
-          return res.json({ ok: true, score: prev.score });
+          return res.json({ ok: true, score: prev.score, scoreSource: "existing" });
         }
-        throw e; // fall through to 500 if something odd happened
+        throw e;
       }
       throw e;
     }
 
-    // 5) Best-effort mark session used (even if already true)
+    // Mark session used only after successful insert
     await sessions.updateOne(
       { _id },
       { $set: { used: true, finishedAt: now } }
     );
 
-    res.json({ ok: true, score: finalScore });
+    console.log("finish-level stored", {
+      sessionId,
+      levelId,
+      stars,
+      clientDurationSeconds: durationStored,
+      clientScore,
+    });
+
+    res.json({ ok: true, score: Number(clientScore), scoreSource: "client" });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
