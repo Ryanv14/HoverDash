@@ -4,7 +4,7 @@
 PlayerSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 28
-  productGUID: cbe825bd5fb772c4d8e38f109bfae84f
+  productGUID: 5a59c9f90c4253e40a00bf8f3d28e149
   AndroidProfiler: 0
   AndroidFilterTouchesWhenObscured: 0
   AndroidEnableSustainedPerformanceMode: 0
@@ -799,7 +799,7 @@ PlayerSettings:
   webGLTemplate: APPLICATION:Default
   webGLAnalyzeBuildSize: 0
   webGLUseEmbeddedResources: 0
-  webGLCompressionFormat: 0
+  webGLCompressionFormat: 2
   webGLWasmArithmeticExceptions: 0
   webGLLinkerTarget: 1
   webGLThreadsSupport: 0
@@ -852,14 +852,14 @@ PlayerSettings:
   editorAssembliesCompatibilityLevel: 1
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
-  metroPackageName: HoverDash
+  metroPackageName: Project01
   metroPackageVersion: 
   metroCertificatePath: 
   metroCertificatePassword: 
   metroCertificateSubject: 
   metroCertificateIssuer: 
   metroCertificateNotAfter: 0000000000000000
-  metroApplicationDescription: HoverDash
+  metroApplicationDescription: Project01
   wsaImages: {}
   metroTileShortName: 
   metroTileShowName: 0
@@ -930,10 +930,10 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 2
   windowsGamepadBackendHint: 0
-  cloudProjectId: 5011cd38-0e69-4802-91f5-b9ae075e2326
+  cloudProjectId: 5d7f3ee2-3220-40a1-b1a7-b0f6ce82c4e5
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: HoverDash 2025-06-11_17-28-58
+  projectName: Project01
   organizationId: unity_49aa1529879bebada12d
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0

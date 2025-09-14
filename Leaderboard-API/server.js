@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -6,15 +7,67 @@ import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 
 const app = express();
-app.use(helmet());
-app.use(express.json({ limit: "32kb" }));
 
-app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000"], // add your game host(s) here
-  methods: ["GET","POST"]
-}));
+// Behind Render's proxy so req.ip works for rate limiting
+app.set("trust proxy", 1);
 
-const apiLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true });
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+app.use(express.json({ limit: "64kb" }));
+
+// ---- CORS ----
+const STATIC_ALLOWED = new Set([
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:3000",
+]);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // allow curl/postman/no-origin
+  if (STATIC_ALLOWED.has(origin)) return true;
+  try {
+    const host = new URL(origin).host;
+    return (
+      host.endsWith(".onrender.com") ||
+      host.endsWith(".itch.io") ||
+      host.endsWith(".hwcdn.net") ||
+      host.endsWith(".itch.zone") ||
+      host === "itch.zone" ||
+      host === "html.itch.zone" ||
+      host === "html-classic.itch.zone"
+    );
+  } catch {
+    return false;
+  }
+}
+
+const corsOptions = {
+  origin(origin, cb) {
+    if (isAllowedOrigin(origin)) return cb(null, true);
+    cb(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Accept"],
+  maxAge: 86400,
+};
+
+app.use((req, res, next) => {
+  res.setHeader("Vary", "Origin");
+  next();
+});
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+// ---- Rate limit ----
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+});
 app.use(apiLimiter);
 
 // ---- MongoDB ----
@@ -25,9 +78,10 @@ const scores = db.collection("scores");
 const sessions = db.collection("sessions");
 
 // Indexes
-await scores.createIndex({ score: -1, createdAt: 1 });
+await scores.createIndex({ levelId: 1, score: -1, createdAt: 1 });
+await scores.createIndex({ sessionId: 1 }, { unique: true, sparse: true }); // idempotency
 await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-await sessions.createIndex({ playerId: 1, levelId: 1, used: 1 });
+await sessions.createIndex({ levelId: 1, used: 1 });
 
 // ---- helpers ----
 function computeFinalScore(duration, stars) {
@@ -35,63 +89,173 @@ function computeFinalScore(duration, stars) {
   const s = Math.max(0, Math.min(9999, Number(stars) || 0));
   return (1000 / duration) * Math.sqrt(s);
 }
-
 function sanitizeName(raw) {
   let n = String(raw ?? "").trim().replace(/\s+/g, " ");
   if (!n) n = "Anonymous";
-  if (n.length > 20) n = n.slice(0, 20);  // <- only enforced rule
+  if (n.length > 20) n = n.slice(0, 20);
   return n;
+}
+function noStore(res) {
+  res.set("Cache-Control", "no-store");
 }
 
 // ---- routes ----
+app.get("/", (_req, res) => {
+  noStore(res);
+  res.json({ ok: true, message: "Game API is running." });
+});
+app.get("/healthz", (_req, res) => res.sendStatus(200));
 
-// Start: issue single-use session
+// Start session
 app.post("/start-level", async (req, res) => {
-  const { playerId, levelId } = req.body || {};
-  if (typeof playerId !== "string" || typeof levelId !== "string")
+  noStore(res);
+  const { levelId } = req.body || {};
+  if (typeof levelId !== "string") {
     return res.status(400).json({ error: "Bad payload" });
+  }
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
   const { insertedId } = await sessions.insertOne({
-    playerId, levelId, startAt: now, used: false, createdAt: now, expiresAt
+    levelId,
+    startAt: now,
+    used: false,
+    createdAt: now,
+    expiresAt,
   });
+
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish: compute score server-side + store `name`
+// Finish (idempotent; accepts previously-used sessions and returns the same score)
+// Prefers client-provided snapshot (clientScore) if present and sane.
 app.post("/finish-level", async (req, res) => {
+  noStore(res);
+  const {
+    levelId,
+    sessionId,
+    stars,
+    name,
+    clientDurationSeconds,
+    clientScore, // NEW
+  } = req.body || {};
+
+  console.log("finish-level body", {
+    levelId,
+    sessionId,
+    stars,
+    name,
+    clientDurationSeconds,
+    clientScore,
+  });
+
   try {
-    const { playerId, levelId, sessionId, stars, name } = req.body || {};
-    if (typeof playerId !== "string" || typeof levelId !== "string" ||
-        typeof sessionId !== "string" || !Number.isInteger(stars)) {
+    if (
+      typeof levelId !== "string" ||
+      typeof sessionId !== "string" ||
+      !Number.isInteger(stars)
+    ) {
       return res.status(400).json({ error: "Bad payload" });
     }
+    if (!ObjectId.isValid(sessionId)) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
 
-    const sess = await sessions.findOne({
-      _id: new ObjectId(sessionId), playerId, levelId, used: false
-    });
-    if (!sess) return res.status(400).json({ error: "Invalid or used session" });
+    const _id = new ObjectId(sessionId);
+
+    // 1) Look up the session (do NOT require used:false)
+    const sess = await sessions.findOne({ _id, levelId });
+    if (!sess) {
+      const dbg = await sessions.findOne({ _id });
+      console.warn("finish-level session lookup", {
+        found: !!dbg,
+        used: dbg?.used,
+        levelIdOnSession: dbg?.levelId,
+        providedLevelId: levelId,
+      });
+      return res.status(400).json({ error: "Invalid or used session" });
+    }
 
     const now = new Date();
-    const duration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
+    const serverDuration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
+
+    // 2) Prefer client frozen duration if plausible and close to server
+    let duration = serverDuration;
+    if (
+      Number.isFinite(clientDurationSeconds) &&
+      clientDurationSeconds > 0 &&
+      clientDurationSeconds < 60 * 60
+    ) {
+      const diff = Math.abs(clientDurationSeconds - serverDuration);
+      if (diff <= 5 || serverDuration < 1) {
+        duration = clientDurationSeconds;
+      }
+    }
 
     const cleanName = sanitizeName(name);
-    const score = computeFinalScore(duration, stars);
 
-    await sessions.updateOne({ _id: sess._id, used: false }, { $set: { used: true, finishedAt: now } });
+    // 3) Compute serverScore, but prefer a sane clientScore if provided
+    const serverScore = computeFinalScore(duration, stars);
+    const hasClientScore =
+      Number.isFinite(clientScore) &&
+      clientScore >= 0 &&
+      clientScore < 1e9;
 
-    await scores.insertOne({ playerId, levelId, duration, stars, score, name: cleanName, createdAt: now });
+    const finalScore = hasClientScore ? Number(clientScore) : serverScore;
 
-    res.json({ ok: true, score });
+    // 4) Try to insert score (unique on sessionId). If already present, return it.
+    try {
+      await scores.insertOne({
+        sessionId: _id,
+        levelId,
+        stars,
+        name: cleanName,
+        score: finalScore, // what counts on the leaderboard
+        scoreSource: hasClientScore ? "client" : "server",
+        duration, // chosen duration
+        serverDuration, // diagnostics
+        clientDurationSeconds: Number.isFinite(clientDurationSeconds)
+          ? clientDurationSeconds
+          : null,
+        clientScore: hasClientScore ? Number(clientScore) : null,
+        createdAt: now,
+      });
+    } catch (e) {
+      if (e?.code === 11000) {
+        // Duplicate — the score for this session already exists. Return it.
+        const prev = await scores.findOne(
+          { sessionId: _id },
+          { projection: { _id: 0, score: 1 } }
+        );
+        if (prev) {
+          // Best-effort mark session used
+          await sessions.updateOne(
+            { _id },
+            { $set: { used: true, finishedAt: now } }
+          );
+          return res.json({ ok: true, score: prev.score });
+        }
+        throw e; // fall through to 500 if something odd happened
+      }
+      throw e;
+    }
+
+    // 5) Best-effort mark session used (even if already true)
+    await sessions.updateOne(
+      { _id },
+      { $set: { used: true, finishedAt: now } }
+    );
+
+    res.json({ ok: true, score: finalScore });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// Leaderboard: return just name + score
+// Leaderboard
 app.get("/leaderboard/:levelId", async (req, res) => {
+  noStore(res);
   const levelId = req.params.levelId;
   const list = await scores
     .find({ levelId }, { projection: { _id: 0, name: 1, score: 1 } })
@@ -102,4 +266,4 @@ app.get("/leaderboard/:levelId", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
+app.listen(port, () => console.log(`API listening on :${port}`));
