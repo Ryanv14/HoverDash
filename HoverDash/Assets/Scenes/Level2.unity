@@ -4675,7 +4675,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   content: {fileID: 1726611504}
   rowPrefab: {fileID: -506436731526770953, guid: 68a46ca444ffbaf42b1dc62b32fa84e3, type: 3}
-  maxRows: 100
+  maxRows: 10000
   autoFixLayout: 1
   rowHeight: 48
   spacing: 8
@@ -6966,6 +6966,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   BackendBaseUrl: https://hoverdash.onrender.com
+  TimeoutSeconds: 20
 --- !u!1 &2049164071
 GameObject:
   m_ObjectHideFlags: 0

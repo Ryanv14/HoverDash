@@ -80,6 +80,7 @@ const sessions = db.collection("sessions");
 
 // Indexes
 await scores.createIndex({ levelId: 1, score: -1, createdAt: 1 });
+await scores.createIndex({ sessionId: 1 }, { unique: true, sparse: true }); // idempotency
 await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 await sessions.createIndex({ levelId: 1, used: 1 });
 
@@ -128,7 +129,7 @@ app.post("/start-level", async (req, res) => {
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish (uses client-frozen duration if plausible; atomic session consume)
+// Finish (uses client-frozen duration if plausible; atomic session consume; idempotent)
 app.post("/finish-level", async (req, res) => {
   noStore(res);
   try {
@@ -139,6 +140,14 @@ app.post("/finish-level", async (req, res) => {
       name,
       clientDurationSeconds, // optional, from client
     } = req.body || {};
+
+    console.log("finish-level body", {
+      levelId,
+      sessionId,
+      stars,
+      name,
+      clientDurationSeconds,
+    });
 
     if (
       typeof levelId !== "string" ||
@@ -161,6 +170,25 @@ app.post("/finish-level", async (req, res) => {
     );
 
     if (!sess) {
+      // Either invalid session OR already used.
+      // If already used, return the previously computed score (idempotency).
+      const prev = await scores.findOne(
+        { sessionId: new ObjectId(sessionId) },
+        { projection: { _id: 0, score: 1 } }
+      );
+
+      if (prev) {
+        return res.json({ ok: true, score: prev.score });
+      }
+
+      // For debugging, see what exists
+      const dbg = await sessions.findOne({ _id: new ObjectId(sessionId) });
+      console.warn("finish-level session lookup", {
+        found: !!dbg,
+        used: dbg?.used,
+        levelIdOnSession: dbg?.levelId,
+      });
+
       return res.status(400).json({ error: "Invalid or used session" });
     }
 
@@ -174,13 +202,16 @@ app.post("/finish-level", async (req, res) => {
       clientDurationSeconds < 60 * 60 // < 1h sanity bound
     ) {
       const diff = Math.abs(clientDurationSeconds - serverDuration);
-      duration = diff <= 5 ? clientDurationSeconds : serverDuration; // 5s tolerance window
+      if (diff <= 5 || serverDuration < 1) {
+        duration = clientDurationSeconds;
+      }
     }
 
     const cleanName = sanitizeName(name);
     const score = computeFinalScore(duration, stars);
 
     await scores.insertOne({
+      sessionId: new ObjectId(sessionId), // for idempotency
       levelId,
       stars,
       name: cleanName,
@@ -195,6 +226,19 @@ app.post("/finish-level", async (req, res) => {
 
     res.json({ ok: true, score });
   } catch (e) {
+    // Handle duplicate insert (session already has a score) gracefully
+    if (e?.code === 11000) {
+      const sid = req?.body?.sessionId && ObjectId.isValid(req.body.sessionId)
+        ? new ObjectId(req.body.sessionId)
+        : null;
+      if (sid) {
+        const prev = await scores.findOne(
+          { sessionId: sid },
+          { projection: { _id: 0, score: 1 } }
+        );
+        if (prev) return res.json({ ok: true, score: prev.score });
+      }
+    }
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }

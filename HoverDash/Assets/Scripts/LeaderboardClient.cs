@@ -41,14 +41,13 @@ public class LeaderboardClient : MonoBehaviour
                 yield break;
             }
 
-            var json = req.downloadHandler.text;
-            var resp = JsonUtility.FromJson<StartLevelResp>(json);
+            var resp = JsonUtility.FromJson<StartLevelResp>(req.downloadHandler.text);
             sessionId = resp.sessionId;
             onOk?.Invoke(sessionId);
         }
     }
 
-    // Finish a level (no duration sent; server will use server-measured duration)
+    // Finish a level (no duration sent; server uses its own measured duration)
     public IEnumerator FinishLevel(string levelId, int stars, string name, Action<double> onDone, Action<string> onErr = null)
     {
         yield return FinishInternal(levelId, stars, name, 0f, onDone, onErr);
@@ -88,8 +87,7 @@ public class LeaderboardClient : MonoBehaviour
                 yield break;
             }
 
-            var json = req.downloadHandler.text;
-            var arr = JsonHelper.FromJson<ScoreRow>(json);  // top-level array helper
+            var arr = JsonHelper.FromJson<ScoreRow>(req.downloadHandler.text);  // top-level array helper
             onOk?.Invoke(arr ?? Array.Empty<ScoreRow>());
         }
     }
@@ -116,7 +114,7 @@ public class LeaderboardClient : MonoBehaviour
             sessionId = sessionId,
             stars = stars,
             name = safeName,
-            clientDurationSeconds = clientDurationSeconds // <-- now actually sent
+            clientDurationSeconds = clientDurationSeconds // send frozen duration if provided
         });
 
         using (var req = new UnityWebRequest(url, "POST"))
@@ -136,8 +134,7 @@ public class LeaderboardClient : MonoBehaviour
                 yield break;
             }
 
-            var json = req.downloadHandler.text;
-            var resp = JsonUtility.FromJson<FinishLevelResp>(json);
+            var resp = JsonUtility.FromJson<FinishLevelResp>(req.downloadHandler.text);
             onDone?.Invoke(resp.score);
         }
     }
