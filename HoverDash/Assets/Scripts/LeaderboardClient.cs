@@ -8,7 +8,7 @@ using UnityEngine.Networking;
 public class LeaderboardClient : MonoBehaviour
 {
     [Header("Server Settings")]
-    public string BackendBaseUrl = "hoverdash.onrender.com/";
+    public string BackendBaseUrl = "https://hoverdash.onrender.com";
 
     private string sessionId;
 
@@ -30,7 +30,9 @@ public class LeaderboardClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error}");
+                onErr?.Invoke(
+                  $"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}"
+                );
                 yield break;
             }
 
@@ -74,7 +76,9 @@ public class LeaderboardClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error}");
+                onErr?.Invoke(
+                  $"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}"
+                );
                 yield break;
             }
 
@@ -118,7 +122,9 @@ public class LeaderboardClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error}");
+                onErr?.Invoke(
+                  $"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}"
+                );
                 yield break;
             }
 

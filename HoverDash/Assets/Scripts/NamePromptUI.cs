@@ -1,3 +1,5 @@
+// NamePrompt.cs
+
 using UnityEngine;
 using UnityEngine.UI;
 using System;
