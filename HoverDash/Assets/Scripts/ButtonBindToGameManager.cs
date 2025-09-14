@@ -5,7 +5,12 @@ using UnityEngine.UI;
 [RequireComponent(typeof(Button))]
 public class ButtonBindToGameManager : MonoBehaviour
 {
-    public enum Action { RestartLevel, GoToMainMenu }
+    public enum Action
+    {
+        RestartLevel,
+        GoToMainMenu,
+        SubmitScore   // new action
+    }
 
     [SerializeField] private Action action;
     private Button btn;
@@ -32,8 +37,17 @@ public class ButtonBindToGameManager : MonoBehaviour
 
         switch (action)
         {
-            case Action.RestartLevel: gm.RestartLevel(); break;
-            case Action.GoToMainMenu: gm.GoToMainMenu(); break;
+            case Action.RestartLevel:
+                gm.RestartLevel();
+                break;
+
+            case Action.GoToMainMenu:
+                gm.GoToMainMenu();
+                break;
+
+            case Action.SubmitScore:
+                gm.OnClickSubmitScore();
+                break;
         }
     }
 }

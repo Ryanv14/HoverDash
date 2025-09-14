@@ -1,8 +1,8 @@
 // GameManager.cs
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using System;
 using System.Collections;
+using TMPro;
 
 [DisallowMultipleComponent]
 public class GameManager : MonoBehaviour
@@ -14,6 +14,10 @@ public class GameManager : MonoBehaviour
     [SerializeField] private GameObject namePromptUI;    // Panel with NamePromptUI
     [SerializeField] private GameObject leaderboardUI;   // Panel with LeaderboardUI 
     [SerializeField] private GameObject startPromptUI;   // "Press W to start"
+
+    [Header("Name Input (optional direct reference)")]
+    [Tooltip("TMP_InputField inside the name prompt. If left empty, we'll auto-find it under namePromptUI.")]
+    [SerializeField] private TMP_InputField nameInput;
 
     [Header("Fallback names (optional)")]
     [SerializeField] private string namePromptObjectName = "NamePromptUI";
@@ -34,7 +38,13 @@ public class GameManager : MonoBehaviour
     // Player controller (to toggle movement)
     private HoverVehicleController player;
 
-    // lifecycle 
+    // Pending submission data (set at finish; used on Submit)
+    private int pendingStars = 0;
+    private float pendingDuration = 0f;
+    private string pendingName = "";  
+    private bool canSubmit = false;
+    private bool isSubmitting = false;
+
     private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
     private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
 
@@ -47,7 +57,7 @@ public class GameManager : MonoBehaviour
             Debug.LogWarning("Level 2 is a leaderboard level but no LeaderboardClient was found.");
     }
 
-    private void Start() => PrepareRunGate(); // show "Press W" and wait
+    private void Start() => PrepareRunGate();
 
     private void Update()
     {
@@ -85,7 +95,11 @@ public class GameManager : MonoBehaviour
         if (!startPromptUI && !string.IsNullOrWhiteSpace(startPromptObjectName))
             startPromptUI = FindSceneObjectByName(startPromptObjectName);
 
-        Debug.Log($"[GM] Bind: lb={(lb ? "ok" : "null")}, startPromptUI={(startPromptUI ? startPromptUI.name : "null")}, namePrompt={(namePrompt ? "ok" : "null")}, leaderboard={(leaderboard ? "ok" : "null")}, player={(player ? player.name : "null")}");
+        // Lazy hook the input if not set
+        if (!nameInput && namePromptUI)
+            nameInput = namePromptUI.GetComponentInChildren<TMP_InputField>(true);
+
+        Debug.Log($"[GM] Bind: lb={(lb ? "ok" : "null")}, startPromptUI={(startPromptUI ? startPromptUI.name : "null")}, namePrompt={(namePrompt ? "ok" : "null")}, leaderboard={(leaderboard ? "ok" : "null")}, player={(player ? player.name : "null")}, nameInput={(nameInput ? nameInput.name : "null")}");
     }
 
     private static GameObject FindSceneObjectByName(string targetName)
@@ -137,6 +151,13 @@ public class GameManager : MonoBehaviour
 
         waitingForPlayerStart = true;
         runInProgress = false;
+
+        // reset submission state
+        canSubmit = false;
+        isSubmitting = false;
+        pendingName = "";
+        pendingDuration = 0f;
+        pendingStars = 0;
     }
 
     private void BeginRunNow()
@@ -159,7 +180,7 @@ public class GameManager : MonoBehaviour
             StartCoroutine(lb.StartLevel(leaderboardLevelId));
     }
 
-    public void StartLevel() => PrepareRunGate(); // public restart without reload
+    public void StartLevel() => PrepareRunGate();
 
     public void FinishRun()
     {
@@ -173,22 +194,38 @@ public class GameManager : MonoBehaviour
             player.ZeroOutVelocity();
         }
 
-        // Freeze score/time immediately
+        // Freeze score/time immediately (visual + local)
         ScoreManager.Instance.FinishLevel();
+        UIManager.Instance.StopTimer(); 
         UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
+
+        // Cache data for later manual submission
+        pendingDuration = ScoreManager.Instance.FinishedDuration;
+        pendingStars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
+        canSubmit = true;
+        isSubmitting = false;
 
         if (isLeaderboardLevel && lb != null)
         {
             if (namePrompt != null)
             {
+                // Show prompt; capture the confirmed name, but DO NOT submit yet.
                 string prefill = "";
-                float frozenDuration = ScoreManager.Instance.FinishedDuration;
-                int stars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
-
                 namePrompt.Show(
                     prefill: prefill,
-                    onConfirm: name => StartCoroutine(SubmitAfterName(name, stars, frozenDuration)),
-                    onCancel: () => { /* local score already shown */ }
+                    onConfirm: confirmedName =>
+                    {
+                        pendingName = string.IsNullOrWhiteSpace(confirmedName) ? "Anonymous" : confirmedName.Trim();
+                        if (pendingName.Length > 20) pendingName = pendingName.Substring(0, 20);
+
+                        // Also sync the visible input if present
+                        if (!nameInput && namePromptUI)
+                            nameInput = namePromptUI.GetComponentInChildren<TMP_InputField>(true);
+                        if (nameInput) nameInput.text = pendingName;
+                    },
+                    onCancel: () =>
+                    {
+                    }
                 );
             }
             else
@@ -198,46 +235,68 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    public void OnClickSubmitScore()
+    {
+        if (!isLeaderboardLevel || lb == null)
+        {
+            Debug.LogWarning("[GM] Submit clicked but leaderboard client is not available.");
+            return;
+        }
+        if (!canSubmit)
+        {
+            Debug.LogWarning("[GM] Submit clicked but there is no pending run to submit.");
+            return;
+        }
+        if (isSubmitting)
+        {
+            Debug.Log("[GM] Already submitting, ignoring extra click.");
+            return;
+        }
+
+        // Prefer the confirmed name from the prompt; otherwise read from input; otherwise Anonymous.
+        string name = !string.IsNullOrWhiteSpace(pendingName) ? pendingName :
+                      (nameInput ? nameInput.text : "");
+        name = string.IsNullOrWhiteSpace(name) ? "Anonymous" : name.Trim();
+        if (name.Length > 20) name = name.Substring(0, 20);
+
+        isSubmitting = true;
+        StartCoroutine(SubmitAfterName(name, pendingStars, pendingDuration));
+    }
+
     private IEnumerator SubmitAfterName(string name, int stars, float frozenDuration)
     {
-        var ensureMethod = lb?.GetType().GetMethod("EnsureSession");
-        if (ensureMethod != null)
-            yield return (IEnumerator)ensureMethod.Invoke(lb, new object[] { leaderboardLevelId });
+        // Ensure session
+        if (lb != null)
+            yield return lb.EnsureSession(leaderboardLevelId);
 
-        // Prefer duration-aware overload if present
-        var durationOverload = lb.GetType().GetMethod(
-            "FinishLevel",
-            new Type[] { typeof(string), typeof(int), typeof(string), typeof(float), typeof(Action<double>) }
-        );
-
-        if (durationOverload != null)
-        {
-            yield return (IEnumerator)durationOverload.Invoke(lb, new object[]
-            {
-                leaderboardLevelId, stars, name, frozenDuration,
-                (Action<double>)((serverScore) =>
-                {
-                    ScoreManager.Instance.ApplyServerScore(serverScore);
-                    UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
-                    MaybeShowLeaderboard();
-                })
-            });
-        }
-        else
-        {
-            Debug.LogWarning("[GM] Duration-aware FinishLevel overload not found; falling back (score may drift if player waits).");
-            yield return lb.FinishLevel(leaderboardLevelId, stars, name, serverScore =>
+        // Use the duration-aware overload (client sends frozenDuration)
+        yield return lb.FinishLevel(
+            leaderboardLevelId,
+            stars,
+            name,
+            frozenDuration,
+            serverScore =>
             {
                 ScoreManager.Instance.ApplyServerScore(serverScore);
                 UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
+                canSubmit = false;
+                isSubmitting = false;
                 MaybeShowLeaderboard();
-            });
-        }
+            },
+            err =>
+            {
+                Debug.LogError("[GM] FinishLevel failed: " + err);
+                // allow retry
+                isSubmitting = false;
+                // optional: still show leaderboard (local)
+                MaybeShowLeaderboard();
+            }
+        );
     }
 
     private void MaybeShowLeaderboard()
     {
-        if (leaderboard != null)
+        if (leaderboard != null && lb != null)
         {
             StartCoroutine(lb.GetLeaderboard(leaderboardLevelId,
                 (LeaderboardClient.ScoreRow[] rows) =>

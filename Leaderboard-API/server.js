@@ -8,10 +8,15 @@ import "dotenv/config";
 
 const app = express();
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-app.use(express.json({ limit: "32kb" }));
+// Behind Render's proxy so req.ip works for rate limiting
+app.set("trust proxy", 1);
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+app.use(express.json({ limit: "64kb" }));
 
 // ---- CORS ----
 const STATIC_ALLOWED = new Set([
@@ -30,7 +35,7 @@ function isAllowedOrigin(origin) {
       host.endsWith(".onrender.com") ||
       host.endsWith(".itch.io") ||
       host.endsWith(".hwcdn.net") ||
-      host.endsWith(".itch.zone") ||   
+      host.endsWith(".itch.zone") ||
       host === "itch.zone" ||
       host === "html.itch.zone" ||
       host === "html-classic.itch.zone"
@@ -46,17 +51,24 @@ const corsOptions = {
     cb(new Error("Not allowed by CORS"));
   },
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-  maxAge: 86400
+  allowedHeaders: ["Content-Type", "Accept"],
+  maxAge: 86400,
 };
 
-app.use((req, res, next) => { res.setHeader("Vary", "Origin"); next(); });
+app.use((req, res, next) => {
+  res.setHeader("Vary", "Origin");
+  next();
+});
 app.use(cors(corsOptions));
 // Explicitly handle preflight anywhere:
 app.options("*", cors(corsOptions));
 
 // ---- Rate limit ----
-const apiLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true });
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+});
 app.use(apiLimiter);
 
 // ---- MongoDB ----
@@ -67,7 +79,7 @@ const scores = db.collection("scores");
 const sessions = db.collection("sessions");
 
 // Indexes
-await scores.createIndex({ score: -1, createdAt: 1 });
+await scores.createIndex({ levelId: 1, score: -1, createdAt: 1 });
 await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 await sessions.createIndex({ levelId: 1, used: 1 });
 
@@ -84,41 +96,102 @@ function sanitizeName(raw) {
   return n;
 }
 
+// Small helper to prevent caching dynamic responses
+function noStore(res) {
+  res.set("Cache-Control", "no-store");
+}
+
 // ---- routes ----
-app.get("/", (_req, res) => res.json({ ok: true, message: "Game API is running." }));
+app.get("/", (_req, res) => {
+  noStore(res);
+  res.json({ ok: true, message: "Game API is running." });
+});
 app.get("/healthz", (_req, res) => res.sendStatus(200));
 
 // Start session 
 app.post("/start-level", async (req, res) => {
+  noStore(res);
   const { levelId } = req.body || {};
-  if (typeof levelId !== "string") return res.status(400).json({ error: "Bad payload" });
+  if (typeof levelId !== "string") {
+    return res.status(400).json({ error: "Bad payload" });
+  }
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
   const { insertedId } = await sessions.insertOne({
-    levelId, startAt: now, used: false, createdAt: now, expiresAt
+    levelId,
+    startAt: now,
+    used: false,
+    createdAt: now,
+    expiresAt,
   });
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish
+// Finish (uses client-frozen duration if plausible; atomic session consume)
 app.post("/finish-level", async (req, res) => {
+  noStore(res);
   try {
-    const { levelId, sessionId, stars, name } = req.body || {};
-    if (typeof levelId !== "string" || typeof sessionId !== "string" || !Number.isInteger(stars)) {
+    const {
+      levelId,
+      sessionId,
+      stars,
+      name,
+      clientDurationSeconds, // optional, from client
+    } = req.body || {};
+
+    if (
+      typeof levelId !== "string" ||
+      typeof sessionId !== "string" ||
+      !Number.isInteger(stars)
+    ) {
       return res.status(400).json({ error: "Bad payload" });
     }
-
-    const sess = await sessions.findOne({ _id: new ObjectId(sessionId), levelId, used: false });
-    if (!sess) return res.status(400).json({ error: "Invalid or used session" });
+    if (!ObjectId.isValid(sessionId)) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
 
     const now = new Date();
-    const duration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
+
+    // Atomically mark the session as used and read its previous data
+    const { value: sess } = await sessions.findOneAndUpdate(
+      { _id: new ObjectId(sessionId), levelId, used: false },
+      { $set: { used: true, finishedAt: now } },
+      { returnDocument: "before" }
+    );
+
+    if (!sess) {
+      return res.status(400).json({ error: "Invalid or used session" });
+    }
+
+    const serverDuration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
+
+    // Prefer client frozen duration if it's sensible and close to server's clock
+    let duration = serverDuration;
+    if (
+      Number.isFinite(clientDurationSeconds) &&
+      clientDurationSeconds > 0 &&
+      clientDurationSeconds < 60 * 60 // < 1h sanity bound
+    ) {
+      const diff = Math.abs(clientDurationSeconds - serverDuration);
+      duration = diff <= 5 ? clientDurationSeconds : serverDuration; // 5s tolerance window
+    }
+
     const cleanName = sanitizeName(name);
     const score = computeFinalScore(duration, stars);
 
-    await sessions.updateOne({ _id: sess._id, used: false }, { $set: { used: true, finishedAt: now } });
-    await scores.insertOne({ levelId, duration, stars, score, name: cleanName, createdAt: now });
+    await scores.insertOne({
+      levelId,
+      stars,
+      name: cleanName,
+      score,
+      duration, // chosen duration
+      serverDuration, // for debugging/analytics
+      clientDurationSeconds: Number.isFinite(clientDurationSeconds)
+        ? clientDurationSeconds
+        : null,
+      createdAt: now,
+    });
 
     res.json({ ok: true, score });
   } catch (e) {
@@ -129,6 +202,7 @@ app.post("/finish-level", async (req, res) => {
 
 // Leaderboard
 app.get("/leaderboard/:levelId", async (req, res) => {
+  noStore(res);
   const levelId = req.params.levelId;
   const list = await scores
     .find({ levelId }, { projection: { _id: 0, name: 1, score: 1 } })
