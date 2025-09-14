@@ -60,7 +60,6 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cors(corsOptions));
-// Explicitly handle preflight anywhere:
 app.options("*", cors(corsOptions));
 
 // ---- Rate limit ----
@@ -96,35 +95,9 @@ function sanitizeName(raw) {
   if (n.length > 20) n = n.slice(0, 20);
   return n;
 }
-
-// Small helper to prevent caching dynamic responses
 function noStore(res) {
   res.set("Cache-Control", "no-store");
 }
-
-// --- DEBUG ROUTES (TEMPORARY) ---
-app.get("/debug/session/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "bad id" });
-    const doc = await sessions.findOne({ _id: new ObjectId(id) });
-    return res.json({
-      found: !!doc,
-      used: doc?.used ?? null,
-      levelId: doc?.levelId ?? null,
-      startAt: doc?.startAt ?? null,
-      createdAt: doc?.createdAt ?? null,
-      expiresAt: doc?.expiresAt ?? null,
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "debug session error" });
-  }
-});
-
-app.get("/debug/ping", (_req, res) => {
-  res.json({ ok: true, envDb: process.env.MONGODB_URI ? "set" : "unset" });
-});
 
 // ---- routes ----
 app.get("/", (_req, res) => {
@@ -133,7 +106,7 @@ app.get("/", (_req, res) => {
 });
 app.get("/healthz", (_req, res) => res.sendStatus(200));
 
-// Start session 
+// Start session
 app.post("/start-level", async (req, res) => {
   noStore(res);
   const { levelId } = req.body || {};
@@ -150,29 +123,30 @@ app.post("/start-level", async (req, res) => {
     createdAt: now,
     expiresAt,
   });
+
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish (uses client-frozen duration if plausible; atomic session consume; idempotent)
+// Finish (idempotent; accepts previously-used sessions and returns the same score)
 app.post("/finish-level", async (req, res) => {
   noStore(res);
+  const {
+    levelId,
+    sessionId,
+    stars,
+    name,
+    clientDurationSeconds,
+  } = req.body || {};
+
+  console.log("finish-level body", {
+    levelId,
+    sessionId,
+    stars,
+    name,
+    clientDurationSeconds,
+  });
+
   try {
-    const {
-      levelId,
-      sessionId,
-      stars,
-      name,
-      clientDurationSeconds, // optional, from client
-    } = req.body || {};
-
-    console.log("finish-level body", {
-      levelId,
-      sessionId,
-      stars,
-      name,
-      clientDurationSeconds,
-    });
-
     if (
       typeof levelId !== "string" ||
       typeof sessionId !== "string" ||
@@ -184,52 +158,28 @@ app.post("/finish-level", async (req, res) => {
       return res.status(400).json({ error: "Invalid session id" });
     }
 
-    const now = new Date();
+    const _id = new ObjectId(sessionId);
 
-    // Atomically mark the session as used and read its previous data
-    // NOTE: we *do not* filter on levelId here to avoid false 400s due to mismatch.
-    const { value: sess } = await sessions.findOneAndUpdate(
-      { _id: new ObjectId(sessionId), used: false },
-      { $set: { used: true, finishedAt: now } },
-      { returnDocument: "before" }
-    );
-
+    // 1) Look up the session (do NOT require used:false here)
+    const sess = await sessions.findOne({ _id, levelId });
     if (!sess) {
-      // Already used or invalid. If already used, return the previously computed score (idempotency).
-      const prev = await scores.findOne(
-        { sessionId: new ObjectId(sessionId) },
-        { projection: { _id: 0, score: 1 } }
-      );
-      if (prev) return res.json({ ok: true, score: prev.score });
-
-      // For debugging, see what exists
-      const dbg = await sessions.findOne({ _id: new ObjectId(sessionId) });
+      // if it exists but levelId differs, tell us what happened
+      const dbg = await sessions.findOne({ _id });
       console.warn("finish-level session lookup", {
-        found: !!dbg,
-        used: dbg?.used,
-        levelIdOnSession: dbg?.levelId,
-        providedLevelId: levelId,
+        found: !!dbg, used: dbg?.used, levelIdOnSession: dbg?.levelId, providedLevelId: levelId
       });
-
       return res.status(400).json({ error: "Invalid or used session" });
     }
 
-    // If the provided levelId is different from the session's, log it (we'll still proceed).
-    if (sess.levelId !== levelId) {
-      console.warn("finish-level levelId mismatch", {
-        sessionLevelId: sess.levelId,
-        providedLevelId: levelId,
-      });
-    }
-
+    const now = new Date();
     const serverDuration = Math.max(0, (now - new Date(sess.startAt)) / 1000);
 
-    // Prefer client frozen duration if it's sensible and close to server's clock
+    // 2) Prefer client frozen duration if plausible and close to server
     let duration = serverDuration;
     if (
       Number.isFinite(clientDurationSeconds) &&
       clientDurationSeconds > 0 &&
-      clientDurationSeconds < 60 * 60 // < 1h sanity bound
+      clientDurationSeconds < 60 * 60
     ) {
       const diff = Math.abs(clientDurationSeconds - serverDuration);
       if (diff <= 5 || serverDuration < 1) {
@@ -240,35 +190,47 @@ app.post("/finish-level", async (req, res) => {
     const cleanName = sanitizeName(name);
     const score = computeFinalScore(duration, stars);
 
-    await scores.insertOne({
-      sessionId: new ObjectId(sessionId), // for idempotency
-      levelId: sess.levelId,              // trust the session's level id
-      stars,
-      name: cleanName,
-      score,
-      duration, // chosen duration
-      serverDuration, // for debugging/analytics
-      clientDurationSeconds: Number.isFinite(clientDurationSeconds)
-        ? clientDurationSeconds
-        : null,
-      createdAt: now,
-    });
+    // 3) Try to insert score (unique on sessionId). If already present, return it.
+    try {
+      await scores.insertOne({
+        sessionId: _id,
+        levelId,
+        stars,
+        name: cleanName,
+        score,
+        duration,
+        serverDuration,
+        clientDurationSeconds: Number.isFinite(clientDurationSeconds)
+          ? clientDurationSeconds
+          : null,
+        createdAt: now,
+      });
+    } catch (e) {
+      if (e?.code === 11000) {
+        // Duplicate — the score for this session already exists. Return it.
+        const prev = await scores.findOne(
+          { sessionId: _id },
+          { projection: { _id: 0, score: 1 } }
+        );
+        if (prev) {
+          // Best-effort mark session used
+          await sessions.updateOne({ _id }, { $set: { used: true, finishedAt: now } });
+          return res.json({ ok: true, score: prev.score });
+        }
+        // Duplicate without a readable score is odd; fall through and 500
+        throw e;
+      }
+      throw e;
+    }
+
+    // 4) Best-effort mark session used (even if already true)
+    await sessions.updateOne(
+      { _id },
+      { $set: { used: true, finishedAt: now } }
+    );
 
     res.json({ ok: true, score });
   } catch (e) {
-    // Handle duplicate insert (session already has a score) gracefully
-    if (e?.code === 11000) {
-      const sid = req?.body?.sessionId && ObjectId.isValid(req.body.sessionId)
-        ? new ObjectId(req.body.sessionId)
-        : null;
-      if (sid) {
-        const prev = await scores.findOne(
-          { sessionId: sid },
-          { projection: { _id: 0, score: 1 } }
-        );
-        if (prev) return res.json({ ok: true, score: prev.score });
-      }
-    }
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
