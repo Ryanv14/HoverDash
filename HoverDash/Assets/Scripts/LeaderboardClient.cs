@@ -10,6 +10,10 @@ public class LeaderboardClient : MonoBehaviour
     [Header("Server Settings")]
     public string BackendBaseUrl = "https://hoverdash.onrender.com";
 
+    [Header("Network")]
+    [Tooltip("UnityWebRequest timeout in seconds (WebGL uses this).")]
+    public int TimeoutSeconds = 20;
+
     private string sessionId;
 
     // --- Public API ---
@@ -26,13 +30,14 @@ public class LeaderboardClient : MonoBehaviour
             req.uploadHandler = new UploadHandlerRaw(body);
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
+            req.SetRequestHeader("Accept", "application/json");
+            req.timeout = Mathf.Max(1, TimeoutSeconds);
+
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onErr?.Invoke(
-                  $"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}"
-                );
+                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}");
                 yield break;
             }
 
@@ -43,16 +48,16 @@ public class LeaderboardClient : MonoBehaviour
         }
     }
 
-    // Finish a level (send the player's typed name here)
+    // Finish a level (no duration sent; server will use server-measured duration)
     public IEnumerator FinishLevel(string levelId, int stars, string name, Action<double> onDone, Action<string> onErr = null)
     {
-        yield return FinishInternal(levelId, stars, name, onDone, onErr);
+        yield return FinishInternal(levelId, stars, name, 0f, onDone, onErr);
     }
 
-    // Overload with clientDurationSeconds kept for compatibility (ignored by server; you can remove if not needed)
+    // Finish a level (duration-aware; sends client frozen duration to server)
     public IEnumerator FinishLevel(string levelId, int stars, string name, float clientDurationSeconds, Action<double> onDone, Action<string> onErr = null)
     {
-        yield return FinishInternal(levelId, stars, name, onDone, onErr);
+        yield return FinishInternal(levelId, stars, name, clientDurationSeconds, onDone, onErr);
     }
 
     // Ensure session exists (useful if you might call Finish before Start)
@@ -72,13 +77,14 @@ public class LeaderboardClient : MonoBehaviour
         var url = $"{BackendBaseUrl}/leaderboard/{UnityWebRequest.EscapeURL(levelId)}";
         using (var req = UnityWebRequest.Get(url))
         {
+            req.SetRequestHeader("Accept", "application/json");
+            req.timeout = Mathf.Max(1, TimeoutSeconds);
+
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onErr?.Invoke(
-                  $"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}"
-                );
+                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}");
                 yield break;
             }
 
@@ -90,7 +96,7 @@ public class LeaderboardClient : MonoBehaviour
 
     // --- Internals ---
 
-    private IEnumerator FinishInternal(string levelId, int stars, string name, Action<double> onDone, Action<string> onErr)
+    private IEnumerator FinishInternal(string levelId, int stars, string name, float clientDurationSeconds, Action<double> onDone, Action<string> onErr)
     {
         if (string.IsNullOrEmpty(sessionId))
         {
@@ -109,7 +115,8 @@ public class LeaderboardClient : MonoBehaviour
             levelId = levelId,
             sessionId = sessionId,
             stars = stars,
-            name = safeName
+            name = safeName,
+            clientDurationSeconds = clientDurationSeconds // <-- now actually sent
         });
 
         using (var req = new UnityWebRequest(url, "POST"))
@@ -118,13 +125,14 @@ public class LeaderboardClient : MonoBehaviour
             req.uploadHandler = new UploadHandlerRaw(body);
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
+            req.SetRequestHeader("Accept", "application/json");
+            req.timeout = Mathf.Max(1, TimeoutSeconds);
+
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onErr?.Invoke(
-                  $"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}"
-                );
+                onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error} - body: {req.downloadHandler?.text}");
                 yield break;
             }
 
@@ -146,6 +154,7 @@ public class LeaderboardClient : MonoBehaviour
         public string sessionId;
         public int stars;
         public string name;
+        public float clientDurationSeconds; // optional; server uses if > 0 and plausible
     }
 
     [Serializable] public class ScoreRow { public string name; public double score; }
