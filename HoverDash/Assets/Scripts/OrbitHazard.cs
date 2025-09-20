@@ -1,3 +1,4 @@
+//OrbitHazard.cs
 using UnityEngine;
 
 public class OrbitingHazards : MonoBehaviour
