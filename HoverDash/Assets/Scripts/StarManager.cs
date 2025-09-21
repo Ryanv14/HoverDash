@@ -15,7 +15,7 @@ public class StarManager : MonoBehaviour
         if (Instance == null)
             Instance = this;
         else
-            Destroy(gameObject);
+            Destroy(gameObject); // avoid duplicates
     }
 
     private void Start()
@@ -24,8 +24,7 @@ public class StarManager : MonoBehaviour
         UpdateUI();
     }
 
-    // -------- Public API --------
-
+    // ---------------- public api ----------------
     public void AddStar() => AddStars(1);
 
     public void AddStars(int amount)
@@ -35,9 +34,6 @@ public class StarManager : MonoBehaviour
         UpdateUI();
     }
 
-    /// <summary>
-    /// Generic spend (for boosts, abilities, etc). Honors the amount always.
-    /// </summary>
     public bool SpendStars(int amount)
     {
         if (amount <= 0) return true;
@@ -48,17 +44,12 @@ public class StarManager : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// Use this specifically for JUMPS.
-    /// In Zen levels (flagged by GameRules), jumps cost 0.
-    /// </summary>
     public bool SpendForJump(int amount)
     {
-        // If Zen rule is active, jumps are free.
+        // jumps are free in zen levels
         if (GameRules.JumpsAreFreeThisScene)
             return true;
 
-        // Otherwise, spend like normal.
         return SpendStars(amount);
     }
 
@@ -70,14 +61,10 @@ public class StarManager : MonoBehaviour
         UpdateUI();
     }
 
-    // -------- Internals --------
-
+    // ---------------- internals ----------------
     private void UpdateUI()
     {
         if (UIManager.Instance != null)
             UIManager.Instance.UpdateStarCount(Stars);
     }
 }
-
-
-

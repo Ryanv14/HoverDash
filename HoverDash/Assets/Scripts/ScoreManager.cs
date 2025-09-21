@@ -16,7 +16,8 @@ public class ScoreManager : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance == null) Instance = this; else Destroy(gameObject);
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
     }
 
     private void Start()
@@ -28,6 +29,7 @@ public class ScoreManager : MonoBehaviour
         FrozenStars = 0;
     }
 
+    // ---------------- run flow ----------------
     public void StartRun()
     {
         startTime = Time.time;
@@ -47,6 +49,7 @@ public class ScoreManager : MonoBehaviour
 
         int stars = StarManager.Instance ? StarManager.Instance.Stars : 0;
 
+        // simple score formula: stars weighted by speed
         FinalScore = Mathf.Max(0.0f, stars * (1000f / Mathf.Max(0.0001f, duration)));
 
         // snapshot for submission
@@ -58,6 +61,7 @@ public class ScoreManager : MonoBehaviour
 
     public void ApplyServerScore(double serverScore)
     {
+        // prefer server’s authority if it supplies a score
         FinalScore = Mathf.Max(0f, (float)serverScore);
     }
 }

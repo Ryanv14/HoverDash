@@ -4,45 +4,46 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class HazardTouch : MonoBehaviour
 {
-    [Tooltip("If true, use OnTriggerEnter. Make this collider 'Is Trigger'.")]
+    [Tooltip("if true, use OnTriggerEnter (make this collider 'is trigger'). otherwise use collisions.")]
     public bool useTrigger = true;
 
-    private bool _consumed; // prevent double-firing
+    private bool _consumed; // stop double-firing
 
     private void Reset()
     {
+        // editor helper: if we're using trigger mode, mark the collider accordingly
         var col = GetComponent<Collider>();
         if (useTrigger && col) col.isTrigger = true;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if (!useTrigger) return;
+        if (!useTrigger) return;       // wrong mode
         HandleHit(other.gameObject);
     }
 
     private void OnCollisionEnter(Collision collision)
     {
-        if (useTrigger) return;
+        if (useTrigger) return;        // wrong mode
         HandleHit(collision.gameObject);
     }
 
     private void HandleHit(GameObject other)
     {
-        if (_consumed) return;
+        if (_consumed) return;                 // already handled
         if (!other.CompareTag("Player")) return;
 
         _consumed = true;
 
-        // Show game over UI
+        // show game over ui
         if (UIManager.Instance != null)
             UIManager.Instance.ShowGameOver();
 
-        // Stop player control
+        // stop player control
         var controller = other.GetComponent<HoverVehicleController>();
         if (controller) controller.enabled = false;
 
-        // Stop player motion
+        // stop player motion (freeze where they died)
         var rb = other.GetComponent<Rigidbody>();
         if (rb)
         {
@@ -52,3 +53,4 @@ public class HazardTouch : MonoBehaviour
         }
     }
 }
+

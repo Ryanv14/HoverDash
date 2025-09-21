@@ -8,14 +8,17 @@ import "dotenv/config";
 
 const app = express();
 
-// Behind Render's proxy so req.ip works for rate limiting
+// behind render’s proxy so req.ip reflects the real client (needed for rate limit)
 app.set("trust proxy", 1);
 
 app.use(
   helmet({
+    // allow cross-origin loads for hosted builds (itch, render cdn)
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+
+// cap payloads to avoid giant bodies
 app.use(express.json({ limit: "64kb" }));
 
 // ---- CORS ----
@@ -26,8 +29,9 @@ const STATIC_ALLOWED = new Set([
   "http://127.0.0.1:3000",
 ]);
 
+// allow dev origins + common itch/render hosts; no-origin = ok for curl/postman
 function isAllowedOrigin(origin) {
-  if (!origin) return true; // allow curl/postman/no-origin
+  if (!origin) return true;
   if (STATIC_ALLOWED.has(origin)) return true;
   try {
     const host = new URL(origin).host;
@@ -52,9 +56,10 @@ const corsOptions = {
   },
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Accept"],
-  maxAge: 86400,
+  maxAge: 86400, // cache preflights
 };
 
+// vary by origin so caches don’t mix responses
 app.use((req, res, next) => {
   res.setHeader("Vary", "Origin");
   next();
@@ -62,7 +67,8 @@ app.use((req, res, next) => {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-// ---- Rate limit ----
+// ---- rate limit ----
+// simple per-ip bucket: 60 req/min
 const apiLimiter = rateLimit({
   windowMs: 60_000,
   max: 60,
@@ -70,29 +76,33 @@ const apiLimiter = rateLimit({
 });
 app.use(apiLimiter);
 
-// ---- MongoDB ----
+// ---- mongodb ----
 const client = new MongoClient(process.env.MONGODB_URI);
 await client.connect();
 const db = client.db("game");
 const scores = db.collection("scores");
 const sessions = db.collection("sessions");
 
-// Indexes
-await scores.createIndex({ levelId: 1, score: -1, createdAt: 1 });
-await scores.createIndex({ sessionId: 1 }, { unique: true, sparse: true }); // idempotency
-await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-await sessions.createIndex({ levelId: 1, used: 1 });
+// indexes
+await scores.createIndex({ levelId: 1, score: -1, createdAt: 1 }); // leaderboard sort + tie breaker
+await scores.createIndex({ sessionId: 1 }, { unique: true, sparse: true }); // idempotency per session
+await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // ttl cleanup
+await sessions.createIndex({ levelId: 1, used: 1 }); // quick lookups
 
 // ---- helpers ----
 function sanitizeName(raw) {
+  // trim + collapse spaces; clamp length; default to Anonymous
   let n = String(raw ?? "").trim().replace(/\s+/g, " ");
   if (!n) n = "Anonymous";
   if (n.length > 20) n = n.slice(0, 20);
   return n;
 }
+
+// disable caching for dynamic/api responses
 function noStore(res) {
   res.set("Cache-Control", "no-store");
 }
+
 function isFiniteNumber(n) {
   return typeof n === "number" && Number.isFinite(n);
 }
@@ -102,9 +112,10 @@ app.get("/", (_req, res) => {
   noStore(res);
   res.json({ ok: true, message: "Game API is running." });
 });
+
 app.get("/healthz", (_req, res) => res.sendStatus(200));
 
-// Start session
+// start session (single-use token; ttl’d via expiresAt)
 app.post("/start-level", async (req, res) => {
   noStore(res);
   const { levelId } = req.body || {};
@@ -113,7 +124,7 @@ app.post("/start-level", async (req, res) => {
   }
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000); // 30 min window
   const { insertedId } = await sessions.insertOne({
     levelId,
     startAt: now,
@@ -125,8 +136,8 @@ app.post("/start-level", async (req, res) => {
   res.json({ sessionId: insertedId.toString() });
 });
 
-// Finish: ONLY accept client snapshot score. Never compute on server.
-// If clientScore missing/invalid => reject (no insert, no "used" mark).
+// finish: store the client’s snapshot score as-is (intentional).
+// if clientScore is missing/invalid, reject. session is marked used after a successful insert.
 app.post("/finish-level", async (req, res) => {
   noStore(res);
   const {
@@ -134,8 +145,8 @@ app.post("/finish-level", async (req, res) => {
     sessionId,
     stars,
     name,
-    clientDurationSeconds, // optional; stored for analytics only
-    clientScore,           // REQUIRED: this is the only score we will store
+    clientDurationSeconds, // optional, analytics only
+    clientScore,           // required; this is what gets ranked
   } = req.body || {};
 
   console.log("finish-level body", {
@@ -148,7 +159,7 @@ app.post("/finish-level", async (req, res) => {
   });
 
   try {
-    // Validate payload (stars still required so you can store it with the score doc)
+    // minimal payload validation; stars kept for display/analytics
     if (
       typeof levelId !== "string" ||
       typeof sessionId !== "string" ||
@@ -160,14 +171,14 @@ app.post("/finish-level", async (req, res) => {
       return res.status(400).json({ error: "Invalid session id" });
     }
 
-    // Require a finite clientScore (>= 0 allowed; if you want to forbid 0, change to > 0)
+    // require a finite, sane score (0 allowed)
     if (!isFiniteNumber(clientScore) || clientScore < 0 || clientScore >= 1e9) {
       return res.status(400).json({ error: "Missing or invalid clientScore" });
     }
 
     const _id = new ObjectId(sessionId);
 
-    // Look up session (do NOT require used:false); reject if not found / wrong level
+    // find session by id + level (don’t require used:false; idempotency handled by unique index)
     const sess = await sessions.findOne({ _id, levelId });
     if (!sess) {
       const dbg = await sessions.findOne({ _id });
@@ -182,7 +193,7 @@ app.post("/finish-level", async (req, res) => {
 
     const now = new Date();
 
-    // Store the snapshot score exactly as provided
+    // clamp/accept duration to a reasonable window
     const durationStored =
       isFiniteNumber(clientDurationSeconds) && clientDurationSeconds >= 0 && clientDurationSeconds < 60 * 60
         ? clientDurationSeconds
@@ -194,22 +205,22 @@ app.post("/finish-level", async (req, res) => {
         levelId,
         stars,
         name: sanitizeName(name),
-        score: Number(clientScore),            // ONLY the client snapshot counts
+        score: Number(clientScore),            // leaderboard value (snapshot)
         scoreSource: "client",
-        duration: durationStored,              // for analytics/UX
-        clientDurationSeconds: durationStored, // duplicate for clarity
-        clientScore: Number(clientScore),      // store raw snapshot too
+        duration: durationStored,              // convenience/analytics
+        clientDurationSeconds: durationStored, // keep raw key too
+        clientScore: Number(clientScore),      // mirror
         createdAt: now,
       });
     } catch (e) {
       if (e?.code === 11000) {
-        // Duplicate — the score for this session already exists. Return it.
+        // duplicate session submit → return the existing score
         const prev = await scores.findOne(
           { sessionId: _id },
           { projection: { _id: 0, score: 1 } }
         );
         if (prev) {
-          // Best-effort mark session used
+          // mark session used (best effort)
           await sessions.updateOne(
             { _id },
             { $set: { used: true, finishedAt: now } }
@@ -221,7 +232,7 @@ app.post("/finish-level", async (req, res) => {
       throw e;
     }
 
-    // Mark session used only after successful insert
+    // flip the session to used after a successful insert
     await sessions.updateOne(
       { _id },
       { $set: { used: true, finishedAt: now } }
@@ -242,14 +253,14 @@ app.post("/finish-level", async (req, res) => {
   }
 });
 
-// Leaderboard
+// leaderboard (highest first; older wins on ties)
 app.get("/leaderboard/:levelId", async (req, res) => {
   noStore(res);
   const levelId = req.params.levelId;
   const list = await scores
     .find({ levelId }, { projection: { _id: 0, name: 1, score: 1 } })
     .sort({ score: -1, createdAt: 1 })
-    .limit(10000)
+    .limit(10000) // generous cap
     .toArray();
   res.json(list);
 });

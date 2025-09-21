@@ -22,19 +22,20 @@ public class UIManager : MonoBehaviour
     [SerializeField] private string timerTextName = "TimerText";
     [SerializeField] private string gameOverPanelName = "GameOverPanel";
     [SerializeField] private string levelCompleteName = "LevelCompletePanel";
-    [SerializeField] private string finalScoreTextName = "ScoreText"; 
+    [SerializeField] private string finalScoreTextName = "ScoreText";
 
     private float startTime;
     private bool timerRunning;
 
-    // lifecycle 
+    // ---------------- lifecycle ----------------
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
         RebindUI();
-        // Default state at scene load
+
+        // reset state at scene load
         SafeSetActive(gameOverPanel, false);
         SafeSetActive(levelCompletePanel, false);
         if (timerText) timerText.text = "0.00";
@@ -47,10 +48,10 @@ public class UIManager : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        // Rebind every load in case new scene instances are created
+        // rebind every load in case scene instances changed
         RebindUI();
 
-        // Reset default UI state on load
+        // reset state at scene load
         SafeSetActive(gameOverPanel, false);
         SafeSetActive(levelCompletePanel, false);
         if (timerText) timerText.text = "0.00";
@@ -66,7 +67,7 @@ public class UIManager : MonoBehaviour
         timerText.text = elapsed.ToString("F2");
     }
 
-    // public API 
+    // ---------------- public API ----------------
     public void StartTimer()
     {
         startTime = Time.time;
@@ -95,9 +96,10 @@ public class UIManager : MonoBehaviour
     {
         StopTimer();
         SafeSetActive(levelCompletePanel, true);
+
         if (!finalScoreText)
         {
-            // try late-bind once more
+            // late-bind if reference wasn’t already set
             finalScoreText = finalScoreText ?? FindTextByName(finalScoreTextName);
         }
         if (finalScoreText) finalScoreText.text = $"Final Score: {finalScore:F1}";
@@ -111,11 +113,10 @@ public class UIManager : MonoBehaviour
     public void ResetUI() =>
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
 
-    // binding helpers 
+    // ---------------- binding helpers ----------------
     private void RebindUI()
     {
-        // If fields are already assigned, keep them. Otherwise find by name.
-
+        // only look up if references weren’t assigned
         if (!starText) starText = FindTextByName(starTextName);
         if (!timerText) timerText = FindTextByName(timerTextName);
         if (!finalScoreText) finalScoreText = FindTextByName(finalScoreTextName);
@@ -140,7 +141,7 @@ public class UIManager : MonoBehaviour
         foreach (var t in all)
         {
             if (t.hideFlags != HideFlags.None) continue;
-            if (!t.gameObject.scene.IsValid()) continue; // ignore prefabs/assets
+            if (!t.gameObject.scene.IsValid()) continue;
             if (t.name == targetName) return t.gameObject;
         }
         return null;

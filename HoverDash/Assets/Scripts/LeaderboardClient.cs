@@ -21,7 +21,6 @@ public class LeaderboardClient : MonoBehaviour
 
     private string sessionId;
 
-    // Optional: let other scripts inspect/debug
     public string CurrentSessionId => sessionId;
 
     private void Awake()
@@ -36,9 +35,9 @@ public class LeaderboardClient : MonoBehaviour
     }
 #endif
 
-    // --- Public API ----------------------------------------------------------
+    // ---------------- public API ----------------
 
-    // Begin a run/session
+    // start a run/session
     public IEnumerator StartLevel(string levelId, Action<string> onOk = null, Action<string> onErr = null)
     {
         var url = BuildUrl("/start-level");
@@ -71,25 +70,23 @@ public class LeaderboardClient : MonoBehaviour
         }
     }
 
-    // Finish (server measures entirely)
+    // finish overloads (depending on what the client captured)
     public IEnumerator FinishLevel(string levelId, int stars, string name, Action<double> onDone, Action<string> onErr = null)
     {
         return FinishInternal(levelId, stars, name, 0f, 0f, onDone, onErr);
     }
 
-    // Finish with frozen duration only
     public IEnumerator FinishLevel(string levelId, int stars, string name, float clientDurationSeconds, Action<double> onDone, Action<string> onErr = null)
     {
         return FinishInternal(levelId, stars, name, clientDurationSeconds, 0f, onDone, onErr);
     }
 
-    // Finish with frozen duration AND frozen score (preferred)
     public IEnumerator FinishLevel(string levelId, int stars, string name, float clientDurationSeconds, float clientScore, Action<double> onDone, Action<string> onErr = null)
     {
         return FinishInternal(levelId, stars, name, clientDurationSeconds, clientScore, onDone, onErr);
     }
 
-    // Ensure session exists (useful if Finish might be called before Start)
+    // makes sure a session exists before finishing
     public IEnumerator EnsureSession(string levelId, Action onOk = null, Action<string> onErr = null)
     {
         if (!string.IsNullOrEmpty(sessionId))
@@ -100,7 +97,7 @@ public class LeaderboardClient : MonoBehaviour
         yield return StartLevel(levelId, _ => onOk?.Invoke(), onErr);
     }
 
-    // Fetch leaderboard for a level
+    // fetch leaderboard rows for a level
     public IEnumerator GetLeaderboard(string levelId, Action<ScoreRow[]> onOk, Action<string> onErr)
     {
         var url = BuildUrl($"/leaderboard/{UnityWebRequest.EscapeURL(levelId)}");
@@ -117,19 +114,19 @@ public class LeaderboardClient : MonoBehaviour
                 yield break;
             }
 
+            // wrap json so JsonUtility can parse arrays
             var arr = JsonHelper.FromJson<ScoreRow>(req.downloadHandler.text);
             onOk?.Invoke(arr ?? Array.Empty<ScoreRow>());
         }
     }
 
-    // Clear the local session (optional helper)
     public void ClearSession() => sessionId = null;
 
-    // --- Internals -----------------------------------------------------------
+    // ---------------- internals ----------------
 
     private IEnumerator FinishInternal(string levelId, int stars, string name, float clientDurationSeconds, float clientScore, Action<double> onDone, Action<string> onErr)
     {
-        // Start session if missing
+        // start session if missing
         if (string.IsNullOrEmpty(sessionId))
         {
             yield return StartLevel(levelId, _ => { }, onErr);
@@ -154,7 +151,6 @@ public class LeaderboardClient : MonoBehaviour
         if (EnableDebugLogs)
             Debug.Log($"[LB] /finish-level payload: {{ levelId:'{levelId}', sessionId:'{sessionId}', stars:{stars}, name:'{safeName}', clientDurationSeconds:{clientDurationSeconds:0.###}, clientScore:{clientScore:0.###} }}");
 
-        // try once, then if specific 400 error, refresh session and retry once
         bool didRetry = false;
 
         while (true)
@@ -179,7 +175,7 @@ public class LeaderboardClient : MonoBehaviour
                     yield break;
                 }
 
-                // Handle the common case: server says session is invalid/used.
+                // server often says "invalid or used session" if the id is stale
                 var errBody = req.downloadHandler?.text ?? "";
                 bool looksUsed = req.responseCode == 400 && errBody.Contains("Invalid or used session", StringComparison.OrdinalIgnoreCase);
 
@@ -188,7 +184,6 @@ public class LeaderboardClient : MonoBehaviour
                     if (EnableDebugLogs)
                         Debug.LogWarning("[LB] Finish failed with used/invalid session; refreshing session and retrying once.");
 
-                    // refresh session and retry once
                     didRetry = true;
                     yield return StartLevel(levelId, _ => { }, onErr);
                     if (string.IsNullOrEmpty(sessionId))
@@ -197,12 +192,10 @@ public class LeaderboardClient : MonoBehaviour
                         yield break;
                     }
 
-                    // update payload to new session
                     payloadObj.sessionId = sessionId;
                     continue;
                 }
 
-                // generic error
                 onErr?.Invoke($"HTTP error: {req.responseCode} - {req.error} - body: {errBody}");
                 yield break;
             }
@@ -224,7 +217,7 @@ public class LeaderboardClient : MonoBehaviour
         return url;
     }
 
-    // --- DTOs ----------------------------------------------------------------
+    // ---------------- dtos ----------------
 
     [Serializable] private class StartLevelReq { public string levelId; }
     [Serializable] private class StartLevelResp { public string sessionId; }
@@ -237,13 +230,13 @@ public class LeaderboardClient : MonoBehaviour
         public int stars;
         public string name;
         public float clientDurationSeconds;
-        public float clientScore; // snapshot score from client (optional)
+        public float clientScore;
     }
 
     [Serializable] public class ScoreRow { public string name; public double score; }
     [Serializable] private class FinishLevelResp { public bool ok; public double score; }
 
-    // JsonUtility helper for top-level arrays
+    // workaround so JsonUtility can parse arrays
     public static class JsonHelper
     {
         [Serializable] private class Wrapper<T> { public T[] Items; }
@@ -255,3 +248,4 @@ public class LeaderboardClient : MonoBehaviour
         }
     }
 }
+

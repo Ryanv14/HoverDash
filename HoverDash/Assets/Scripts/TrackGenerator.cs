@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEditor;
 #endif
 
-[ExecuteAlways]
+[ExecuteAlways] // runs in Edit Mode too (for on-demand generation)
 public class TrackGenerator : MonoBehaviour
 {
     [Header("Determinism")]
@@ -37,7 +37,7 @@ public class TrackGenerator : MonoBehaviour
     [Tooltip("Add BoxColliders to the walls.")]
     public bool addWallColliders = true;
 
-    // Obstacles (weighted)
+    // weighted obstacle choice
     [System.Serializable]
     public class WeightedObstacle
     {
@@ -72,7 +72,7 @@ public class TrackGenerator : MonoBehaviour
     public bool randomUniformScale = false;
     public Vector2 scaleRange = new Vector2(0.9f, 1.1f);
 
-    // Lane Variety (anti-alignment)
+    // lane diversity (avoid straight lines of obstacles)
     [Header("Lane Variety (anti-alignment)")]
     [Tooltip("Prefer lanes that are far from recently spawned X positions; reduces straight-line runs (BlueNoise mode).")]
     public bool enforceLaneVariety = true;
@@ -87,7 +87,7 @@ public class TrackGenerator : MonoBehaviour
     [Tooltip("Small deterministic jitter added to lane scores to break ties.")]
     public float laneJitter = 0.01f;
 
-    // Lane Centers & Picking
+    // lane placement/pick
     public enum LanePickMode { PureRandom, BlueNoise }
 
     [Header("Lane Centers")]
@@ -98,9 +98,9 @@ public class TrackGenerator : MonoBehaviour
     [Tooltip("PureRandom = pick any allowed lane uniformly. BlueNoise = spread across recent Xs.")]
     public LanePickMode lanePickMode = LanePickMode.PureRandom;
     [Tooltip("Small random horizontal jitter inside a slot to avoid perfect alignment.")]
-    public float laneJitterX = 0f; 
+    public float laneJitterX = 0f;
 
-    // Stars (one per row across whole track)
+    // stars: one per potential row
     [Header("Stars (random gaps; one per row)")]
     public bool generateStars = true;
     public GameObject starPrefab;
@@ -120,7 +120,7 @@ public class TrackGenerator : MonoBehaviour
     [Tooltip("Min |ΔZ| from an obstacle in the same lane to allow a star.")]
     public float starClearanceZ = 2.0f;
 
-    // Finish Line
+    // finish line placement
     [Header("Finish Line")]
     public bool placeFinishLine = true;
     [Tooltip("Prefab to place at the end of the track.")]
@@ -139,11 +139,11 @@ public class TrackGenerator : MonoBehaviour
     [Header("Lifecycle")]
     public bool clearBeforeGenerate = true;
 
-    // Internal
-    private float[] _laneLastZ;                 // for minForwardGap per lane
-    private List<float>[] _lanePlacedZs;        // all obstacle Zs per lane (for star overlap checks)
-    private Queue<float> _recentXs;             // obstacle variety history (positions)
-    private Queue<int> _recentLanes;            // obstacle variety history (lane ids)
+    // ---------------- internals ----------------
+    private float[] _laneLastZ;          // last placed Z per lane (enforce minForwardGap)
+    private List<float>[] _lanePlacedZs; // all obstacle Zs per lane (for star overlap checks)
+    private Queue<float> _recentXs;      // recent obstacle x positions (blue-noise scoring)
+    private Queue<int> _recentLanes;     // recent lane ids (new-lane bonus / streak cap)
     private int _lastLaneUsed = -1;
     private int _sameLaneRun = 0;
 
@@ -158,6 +158,7 @@ public class TrackGenerator : MonoBehaviour
     [ContextMenu("Clear Generated")] private void ClearContextMenu() => ClearGenerated();
 #endif
 
+    // ---------------- generation entry ----------------
     public void Generate()
     {
         if (clearBeforeGenerate) ClearGenerated();
@@ -169,13 +170,12 @@ public class TrackGenerator : MonoBehaviour
         var obstaclesRoot = GetOrCreateChild(ObstaclesNodeName);
         var prng = new System.Random(seed);
 
-        // Reset lane history/spacing trackers
+        // reset spacing/variety trackers per run
         _recentXs = new Queue<float>(Mathf.Max(1, varietyHistory));
         _recentLanes = new Queue<int>(Mathf.Max(1, varietyHistory));
         _lastLaneUsed = -1;
         _sameLaneRun = 0;
 
-        // Per-lane last Z for minForwardGap & storage of all Z for star overlap
         _laneLastZ = new float[Mathf.Max(1, lanes)];
         _lanePlacedZs = new List<float>[Mathf.Max(1, lanes)];
         for (int i = 0; i < lanes; i++)
@@ -184,7 +184,7 @@ public class TrackGenerator : MonoBehaviour
             _lanePlacedZs[i] = new List<float>(64);
         }
 
-        // Lane centers across usable width (or worst-case shrink)
+        // lane centers computed within usable width (respect walls + obstacle padding)
         float usableHalfBase = Mathf.Max(
             0.05f,
             halfTrackWidth - (wallThickness * 0.5f) - obstaclePaddingFromWall
@@ -197,12 +197,13 @@ public class TrackGenerator : MonoBehaviour
         }
         else
         {
+            // shrink if worst-case prefab width would clip walls
             float worstCaseHalfWidth = EstimateMaxHalfWidthAcrossPrefabs();
             float usableHalfForLanes = Mathf.Max(0.05f, usableHalfBase - Mathf.Max(0f, worstCaseHalfWidth));
             laneXs = ComputeLaneXs(lanes, usableHalfForLanes);
         }
 
-        // Obstacles (always random gaps)
+        // obstacles laid out by random Z gaps
         if (HasAnyObstaclePrefab())
         {
             float z = 0f;
@@ -224,15 +225,14 @@ public class TrackGenerator : MonoBehaviour
             Debug.LogWarning("[TrackGenerator] No weighted obstacle prefabs assigned.");
         }
 
-        // Stars (whole track, random gaps, ONE star per row)
+        // stars: random rows across track (optionally prevented near obstacles in same lane)
         if (generateStars && starPrefab != null && lanes > 0)
         {
             GenerateStarsAlongTrack(laneXs);
         }
     }
 
-    // OBSTACLES 
-
+    // ---------------- obstacles ----------------
     private void TrySpawnOneObstacle(System.Random prng, float z, float[] laneXs, Transform parent)
     {
         if (lanes <= 0) return;
@@ -240,7 +240,7 @@ public class TrackGenerator : MonoBehaviour
         var prefab = SelectObstaclePrefab(prng);
         if (!prefab) return;
 
-        // Random yaw (affects width)
+        // optional yaw variance (affects measured width below)
         Quaternion rot = Quaternion.identity;
         if (randomYaw)
         {
@@ -248,7 +248,7 @@ public class TrackGenerator : MonoBehaviour
             rot = Quaternion.Euler(0f, yaw, 0f);
         }
 
-        // Instantiate (editor/runtime safe)
+        // instantiate in both editor and play mode
 #if UNITY_EDITOR
         GameObject go;
         if (!Application.isPlaying)
@@ -258,40 +258,24 @@ public class TrackGenerator : MonoBehaviour
         }
         else { go = Object.Instantiate(prefab, parent); }
 #else
-        var go = Object.Instantiate(prefab, parent);
+    var go = Object.Instantiate(prefab, parent);
 #endif
         go.transform.localRotation = rot;
 
+        // apply neon accent once via helper (single source of truth)
         var accentColors = new[]
-    {
-        new Color(0f, 0.9f, 1f),   // cyan
-        new Color(1f, 0.8f, 0.2f), // amber
-        new Color(0.6f, 1f, 0.8f)  // mint
-    };
-
-var applier = go.GetComponent<ObstacleAccentApplier>();
-if (!applier) applier = go.AddComponent<ObstacleAccentApplier>();
-
-applier.emissionColor = accentColors[prng.Next(0, accentColors.Length)];
-applier.intensity = 0.8f; // ↓ less bright (try 0.6–1.0 if still hot)
-applier.Apply();
-
-        var mrList = go.GetComponentsInChildren<MeshRenderer>(true);
-        var mpb = new MaterialPropertyBlock();
-        Color[] accent = {
-        new Color(0f, 0.9f, 1f),   // cyan
-        new Color(1f, 0.8f, 0.2f), // amber
-        new Color(0.6f, 1f, 0.8f)  // mint
-    };
-        var c = accent[prng.Next(0, accent.Length)];
-        foreach (var mr in mrList)
         {
-            mr.GetPropertyBlock(mpb);
-            mpb.SetColor("_EmissionColor", c * 2.2f); // tweak intensity to taste
-            mr.SetPropertyBlock(mpb);
-        }
+        new Color(0f, 0.9f, 1f),   // cyan
+        new Color(1f, 0.8f, 0.2f), // amber
+        new Color(0.6f, 1f, 0.8f)  // mint
+    };
+        var applier = go.GetComponent<ObstacleAccentApplier>();
+        if (!applier) applier = go.AddComponent<ObstacleAccentApplier>();
+        applier.emissionColor = accentColors[prng.Next(0, accentColors.Length)];
+        applier.intensity = 0.8f;
+        applier.Apply();
 
-        // Grounding offset from renderers
+        // ground based on renderer bounds (keeps bottoms flush with groundY)
         float bottomY = 0f;
         var renderers = go.GetComponentsInChildren<Renderer>();
         if (renderers.Length > 0)
@@ -301,29 +285,28 @@ applier.Apply();
             bottomY = go.transform.position.y - minY;
         }
 
-        // Per-spawn usable width from real measured half-width
+        // compute allowed half-width for this specific obstacle (prevents wall overlap)
         float halfWidthX = MeasureHalfWidthLocalX(go.transform);
         float usableHalfPerObstacle = Mathf.Max(
             0.05f,
             halfTrackWidth - (wallThickness * 0.5f) - obstaclePaddingFromWall - Mathf.Max(0f, halfWidthX)
         );
 
-        // Choose lane (pure random or blue-noise), minForwardGap, clamping
+        // pick a lane (pure random or blue-noise), enforce minForwardGap, clamp inside usable band
         if (!TryChooseLane(prng, z, laneXs, usableHalfPerObstacle, out int chosenLane, out float xFinal))
         {
 #if UNITY_EDITOR
             if (!Application.isPlaying) Undo.DestroyObjectImmediate(go);
             else Destroy(go);
 #else
-            Destroy(go);
+        Destroy(go);
 #endif
             return;
         }
 
-        // Place
         go.transform.localPosition = new Vector3(xFinal, groundY + yOffset + bottomY, z);
 
-        // Optional random uniform scale — re-evaluate usable region and lane pick
+        // optional uniform scaling: width changes → recalc usable band and lane clamp
         if (randomUniformScale)
         {
             float s = Mathf.Lerp(scaleRange.x, scaleRange.y, (float)prng.NextDouble());
@@ -343,7 +326,7 @@ applier.Apply();
             go.transform.localPosition = new Vector3(xFinal, groundY + yOffset + bottomY, z);
         }
 
-        // Update lane spacing & history
+        // update spacing history and lane memory
         _laneLastZ[chosenLane] = z;
         _lanePlacedZs[chosenLane].Add(z);
 
@@ -360,13 +343,14 @@ applier.Apply();
         }
     }
 
+
     private bool TryChooseLane(System.Random prng, float z, float[] laneXs, float usableHalfPerObstacle, out int laneIndex, out float xFinal)
     {
         laneIndex = -1;
         xFinal = 0f;
         if (lanes <= 0) return false;
 
-        // Build candidate lanes that satisfy per-lane forward gap
+        // candidate lanes that respect per-lane forward gap
         var candidates = new List<int>(lanes);
         for (int i = 0; i < lanes; i++)
         {
@@ -375,14 +359,13 @@ applier.Apply();
         }
         if (candidates.Count == 0) return false;
 
-        // MODE A: PURE RANDOM (uniform over valid lanes) 
+        // pure random: any valid lane, then clamp into usable band (with optional jitter)
         if (lanePickMode == LanePickMode.PureRandom)
         {
             int pick = candidates[prng.Next(0, candidates.Count)];
             float xDesired = laneXs[pick];
             float xCand = Mathf.Clamp(xDesired, -usableHalfPerObstacle, +usableHalfPerObstacle);
 
-            // Optional small jitter to avoid perfect slot stacking
             if (laneJitterX > 0f)
             {
                 float j = Mathf.Lerp(-laneJitterX, laneJitterX, (float)prng.NextDouble());
@@ -394,7 +377,7 @@ applier.Apply();
             return true;
         }
 
-        // MODE B: BLUE-NOISE (scoring) 
+        // blue-noise: score lanes by distance from recent Xs, lane variety, and streak limits
         double best = double.NegativeInfinity;
         int bestLane = -1;
         float bestX = 0f;
@@ -454,8 +437,7 @@ applier.Apply();
         return true;
     }
 
-    // STARS 
-
+    // ---------------- stars ----------------
     private void GenerateStarsAlongTrack(float[] laneXs)
     {
         float startZ = 0f;
@@ -467,7 +449,7 @@ applier.Apply();
         float gMin = Mathf.Max(0.05f, starsGapMinZ);
         float gMax = Mathf.Max(gMin, starsGapMaxZ);
 
-        var prng = new System.Random(seed + 1337); // separate stream
+        var prng = new System.Random(seed + 1337); // separate stream to avoid coupling with obstacles
 
         float z = startZ;
         while (z <= endZ)
@@ -475,7 +457,7 @@ applier.Apply();
             bool place = (float)prng.NextDouble() <= Mathf.Clamp01(starsRowSpawnProbability);
             if (place)
             {
-                int lane = prng.Next(0, Mathf.Max(1, lanes)); // one star per row, random lane
+                int lane = prng.Next(0, Mathf.Max(1, lanes)); // one star per row
                 TrySpawnStarAt(z, lane, laneXs, starsRoot);
             }
 
@@ -488,6 +470,7 @@ applier.Apply();
     {
         if (!starPrefab) return;
 
+        // skip placement if too close (Z) to an obstacle in the same lane
         if (preventStarObstacleOverlap && _lanePlacedZs != null && lane < _lanePlacedZs.Length)
         {
             foreach (float oz in _lanePlacedZs[lane])
@@ -496,7 +479,7 @@ applier.Apply();
             }
         }
 
-        // Spawn stars
+        // instantiate in editor or play mode
 #if UNITY_EDITOR
         GameObject s;
         if (!Application.isPlaying)
@@ -509,7 +492,7 @@ applier.Apply();
         var s = Instantiate(starPrefab, parent);
 #endif
 
-        // Grounding (use renderer bottom)
+        // ground via renderer bottom so the star floats at the intended height
         float bottomY = 0f;
         var rends = s.GetComponentsInChildren<Renderer>(true);
         if (rends.Length > 0)
@@ -524,8 +507,7 @@ applier.Apply();
         s.transform.localRotation = Quaternion.Euler(starsLocalEuler);
     }
 
-    // UTIL / BUILD 
-
+    // ---------------- util / build ----------------
     private bool HasAnyObstaclePrefab()
     {
         foreach (var w in weightedObstaclePrefabs)
@@ -615,6 +597,7 @@ applier.Apply();
         if (!mr) mr = groundRoot.gameObject.AddComponent<MeshRenderer>();
         if (groundMaterial) mr.sharedMaterial = groundMaterial;
 
+        // simple quad strip for ground, UVs scaled by tiles-per-unit
         Mesh mesh = new Mesh { name = "GroundAutoMesh" };
 
         float width = halfTrackWidth * 2f;
@@ -668,6 +651,7 @@ applier.Apply();
     {
         var wallsRoot = GetOrCreateChild(WallsNodeName);
 
+        // wipe old wall children before rebuilding
         var toDelete = new List<GameObject>();
         foreach (Transform c in wallsRoot) toDelete.Add(c.gameObject);
 #if UNITY_EDITOR
@@ -697,12 +681,13 @@ applier.Apply();
         if (!Application.isPlaying) Undo.RegisterCreatedObjectUndo(go, "Create Wall");
 #endif
         go.transform.SetParent(parent, false);
-        go.transform.localPosition = new Vector3(0f, 0f, 0f);
+        go.transform.localPosition = Vector3.zero;
 
         var mf = go.AddComponent<MeshFilter>();
         var mr = go.AddComponent<MeshRenderer>();
         if (wallMaterial) mr.sharedMaterial = wallMaterial;
 
+        // simple 6-face prism for the wall strip (keeps colliders simple)
         Mesh mesh = new Mesh { name = name + "_Mesh" };
 
         float x0 = wallXCenter - (wallThickness * 0.5f);
@@ -753,6 +738,8 @@ applier.Apply();
     private void PlaceFinishLine()
     {
         var finishRoot = GetOrCreateChild(FinishNodeName);
+
+        // remove any previous finish instances
         var oldChildren = new List<GameObject>();
         foreach (Transform c in finishRoot) oldChildren.Add(c.gameObject);
 #if UNITY_EDITOR
@@ -762,6 +749,7 @@ applier.Apply();
         foreach (var g in oldChildren) Destroy(g);
 #endif
 
+        // instantiate in editor or play mode
 #if UNITY_EDITOR
         GameObject fin;
         if (!Application.isPlaying)
@@ -774,12 +762,13 @@ applier.Apply();
         var fin = Instantiate(finishLinePrefab, finishRoot);
 #endif
 
+        // place at end of track, then face the player
         Vector3 endLocal = new Vector3(0f, groundY, trackLength + finishZOffset);
         Vector3 endWorld = transform.TransformPoint(endLocal);
         fin.transform.position = endWorld;
-
         fin.transform.localRotation = Quaternion.Euler(finishLocalEuler);
 
+        // scale width to match usable span between walls (optional)
         if (autoScaleFinishToTrackWidth && finishPrefabApproxWidth > 0.001f)
         {
             float usableWidth = (halfTrackWidth * 2f) - Mathf.Max(0f, wallThickness);
@@ -788,6 +777,7 @@ applier.Apply();
             fin.transform.localScale = new Vector3(scaleX, s.y, s.z);
         }
 
+        // ground the prefab using either collider or renderer min Y
         float groundWorldY = transform.TransformPoint(new Vector3(0f, groundY + finishYOffset, 0f)).y;
 
         float bottomWorldY = float.PositiveInfinity;
@@ -825,12 +815,12 @@ applier.Apply();
     {
         Gizmos.matrix = transform.localToWorldMatrix;
 
-        // Track bounds
+        // track bounds
         Gizmos.color = new Color(1, 1, 1, 0.2f);
         Gizmos.DrawWireCube(new Vector3(0f, groundY, trackLength * 0.5f),
                             new Vector3(halfTrackWidth * 2f, 0.01f, trackLength));
 
-        // Lane preview (lightweight, uses fallback)
+        // lane preview (uses fallback worst-case width)
         float usableHalf = Mathf.Max(
             0.05f,
             halfTrackWidth - (wallThickness * 0.5f) - obstaclePaddingFromWall - Mathf.Max(0f, obstacleApproxHalfWidth)
@@ -844,7 +834,7 @@ applier.Apply();
             Gizmos.DrawLine(a, b);
         }
 
-        // Walls preview lines
+        // walls preview lines
         if (buildWalls)
         {
             Gizmos.color = new Color(1, 0.8f, 0f, 0.35f);
@@ -855,8 +845,7 @@ applier.Apply();
         }
     }
 
-    // Automatic width handling 
-
+    // ---------------- automatic width handling ----------------
     private float MeasureHalfWidthLocalX(Transform t)
     {
         var rends = t.GetComponentsInChildren<Renderer>(true);
@@ -866,6 +855,7 @@ applier.Apply();
         bool first = true;
         Vector3 min = default, max = default;
 
+        // project renderer bounds into generator-local to get X span
         foreach (var r in rends)
         {
             var b = r.bounds; // world-space AABB
@@ -883,7 +873,7 @@ applier.Apply();
 
             foreach (var worldPt in c)
             {
-                Vector3 local = transform.InverseTransformPoint(worldPt); // into generator-local
+                Vector3 local = transform.InverseTransformPoint(worldPt);
                 if (first) { min = max = local; first = false; }
                 else { min = Vector3.Min(min, local); max = Vector3.Max(max, local); }
             }
@@ -896,6 +886,7 @@ applier.Apply();
     {
         float maxHalf = Mathf.Max(0.05f, obstacleApproxHalfWidth);
 
+        // instantiate each prefab temporarily to measure width in this generator's space
         foreach (var w in weightedObstaclePrefabs)
         {
             if (w == null || w.prefab == null || w.weight <= 0f) continue;

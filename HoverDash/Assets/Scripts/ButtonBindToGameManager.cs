@@ -23,11 +23,13 @@ public class ButtonBindToGameManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        // Defensive cleanup in case the button is destroyed before the listener is removed
         if (btn != null) btn.onClick.RemoveListener(InvokeAction);
     }
 
     private void InvokeAction()
     {
+        // Uses FindObjectOfType here so buttons don’t need a serialized reference
         var gm = FindObjectOfType<GameManager>(true);
         if (!gm)
         {

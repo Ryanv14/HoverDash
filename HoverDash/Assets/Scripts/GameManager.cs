@@ -7,14 +7,14 @@ using TMPro;
 [DisallowMultipleComponent]
 public class GameManager : MonoBehaviour
 {
-    private const string leaderboardSceneName = "Level2"; // change if needed
-    private const string leaderboardLevelId = "level-2";
+    private const string leaderboardSceneName = "Level2"; // scene considered a leaderboard level
+    private const string leaderboardLevelId = "level-2";  // server-side level id
 
     [SerializeField] private string zenLevelSceneName = "ZenLevel";
 
     [Header("UI Panels (GameObjects)")]
-    [SerializeField] private GameObject namePromptUI;    // Panel with NamePromptUI
-    [SerializeField] private GameObject leaderboardUI;   // Panel with LeaderboardUI 
+    [SerializeField] private GameObject namePromptUI;    // holds NamePromptUI
+    [SerializeField] private GameObject leaderboardUI;   // holds LeaderboardUI 
     [SerializeField] private GameObject startPromptUI;   // "Press W to start"
 
     [Header("Name Input (optional direct reference)")]
@@ -26,23 +26,23 @@ public class GameManager : MonoBehaviour
     [SerializeField] private string leaderboardObjectName = "LeaderboardUI";
     [SerializeField] private string startPromptObjectName = "StartPromptUI";
 
-    // Cached components
+    // Cached components (bound on load or via fallbacks)
     private NamePromptUI namePrompt;
     private LeaderboardUI leaderboard;
     private LeaderboardClient lb;
 
     private bool isLeaderboardLevel;
 
-    // Run-state gating
-    private bool waitingForPlayerStart = false; // true while "Press W" is up
-    private bool runInProgress = false;         // true from actual start until finish
+    // Run-state gate flags
+    private bool waitingForPlayerStart = false;
+    private bool runInProgress = false;
 
-    // Player controller (to toggle movement)
+    // Player controller (toggled at start/finish)
     private HoverVehicleController player;
 
-    // Pending submission data (set at finish; used on Submit)
+    // Submission snapshot (captured at finish)
     private int pendingStars = 0;
-    private float pendingDuration = 0f; // FROZEN duration snapshot
+    private float pendingDuration = 0f; // frozen duration
     private string pendingName = "";
     private bool canSubmit = false;
     private bool isSubmitting = false;
@@ -56,7 +56,7 @@ public class GameManager : MonoBehaviour
         var scene = SceneManager.GetActiveScene();
         isLeaderboardLevel = scene.name == leaderboardSceneName;
 
-        // Set Zen free-jumps flag for this scene
+        // Toggle Zen rules per scene (wrapped in try in case GameRules is absent)
         SetZenRules(scene.name);
 
         if (isLeaderboardLevel && lb == null)
@@ -67,6 +67,7 @@ public class GameManager : MonoBehaviour
 
     private void Update()
     {
+        // Single key gate to begin the run
         if (waitingForPlayerStart && Input.GetKeyDown(KeyCode.W))
             BeginRunNow();
     }
@@ -82,6 +83,7 @@ public class GameManager : MonoBehaviour
     // ---------------- binding & helpers ----------------
     private void RebindAll()
     {
+        // Includes inactive objects so UI/clients can be bound even when disabled in hierarchy
         lb = FindFirstObjectByType<LeaderboardClient>(FindObjectsInactive.Include);
         player = FindFirstObjectByType<HoverVehicleController>(FindObjectsInactive.Include);
 
@@ -91,6 +93,7 @@ public class GameManager : MonoBehaviour
         if (!namePrompt) namePrompt = FindFirstObjectByType<NamePromptUI>(FindObjectsInactive.Include);
         if (!leaderboard) leaderboard = FindFirstObjectByType<LeaderboardUI>(FindObjectsInactive.Include);
 
+        // Fallback by name if direct refs weren’t assigned
         if (!namePromptUI && !string.IsNullOrWhiteSpace(namePromptObjectName))
             namePromptUI = FindSceneObjectByName(namePromptObjectName);
         if (!leaderboardUI && !string.IsNullOrWhiteSpace(leaderboardObjectName))
@@ -98,6 +101,7 @@ public class GameManager : MonoBehaviour
         if (!startPromptUI && !string.IsNullOrWhiteSpace(startPromptObjectName))
             startPromptUI = FindSceneObjectByName(startPromptObjectName);
 
+        // Late-bind input field from the prompt panel if needed
         if (!nameInput && namePromptUI)
             nameInput = namePromptUI.GetComponentInChildren<TMP_InputField>(true);
 
@@ -107,6 +111,7 @@ public class GameManager : MonoBehaviour
     private static GameObject FindSceneObjectByName(string targetName)
     {
         if (string.IsNullOrEmpty(targetName)) return null;
+        // Searches only active scene objects (ignores assets/prefabs via scene.IsValid)
         var all = Resources.FindObjectsOfTypeAll<Transform>();
         foreach (var t in all)
         {
@@ -132,9 +137,7 @@ public class GameManager : MonoBehaviour
 
     private void SetZenRules(string sceneName)
     {
-        // If you created the GameRules static class:
-        // GameRules.JumpsAreFreeThisScene = (sceneName == zenLevelSceneName);
-        // If you don’t have that class, remove this line and keep your own toggle wherever you deduct stars.
+        // Optional dependency: only applies if GameRules exists in the project
         try { GameRules.JumpsAreFreeThisScene = (sceneName == zenLevelSceneName); }
         catch { /* GameRules not present; ignore */ }
     }
@@ -144,12 +147,14 @@ public class GameManager : MonoBehaviour
     {
         HidePanelsAtRunStart();
 
+        // Ensure HUD matches the current star state at gate
         UIManager.Instance.UpdateStarCount(StarManager.Instance ? StarManager.Instance.Stars : 0);
 
+        // Allow re-using the same FinishLine without reloads
         var finish = FindFirstObjectByType<FinishLine>(FindObjectsInactive.Include);
         if (finish) finish.ResetGate();
 
-        // Gate movement
+        // Player is parked & disabled until the run starts
         if (player)
         {
             player.SetMovementEnabled(false);
@@ -162,7 +167,7 @@ public class GameManager : MonoBehaviour
         waitingForPlayerStart = true;
         runInProgress = false;
 
-        // reset submission state
+        // Reset submission state for a fresh attempt
         canSubmit = false;
         isSubmitting = false;
         pendingName = "";
@@ -186,6 +191,7 @@ public class GameManager : MonoBehaviour
             player.SetControlsEnabled(true);
         }
 
+        // Start a server session if this scene participates in the leaderboard
         if (isLeaderboardLevel && lb != null)
         {
             StartCoroutine(lb.StartLevel(leaderboardLevelId));
@@ -199,6 +205,7 @@ public class GameManager : MonoBehaviour
         if (!runInProgress) return;
         runInProgress = false;
 
+        // Lock the hovercraft immediately for consistent finish behavior
         if (player)
         {
             player.SetMovementEnabled(false);
@@ -206,22 +213,22 @@ public class GameManager : MonoBehaviour
             player.ZeroOutVelocity();
         }
 
-        // Freeze score/time immediately (visual + local)
-        ScoreManager.Instance.FinishLevel();          // sets FinishedDuration + FinalScore (snapshot)
+        // Freeze time/score visuals and local snapshot
+        ScoreManager.Instance.FinishLevel();
         UIManager.Instance.StopTimer();
         UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
 
-        // Cache data for later manual submission (SNAPSHOTS)
+        // Capture data for a later manual submit click (don’t submit automatically)
         pendingDuration = ScoreManager.Instance.FinishedDuration;
         pendingStars = StarManager.Instance != null ? StarManager.Instance.Stars : 0;
         canSubmit = true;
         isSubmitting = false;
 
+        // Ask for a name on leaderboard scenes; store result but wait for user to press Submit
         if (isLeaderboardLevel && lb != null)
         {
             if (namePrompt != null)
             {
-                // Show prompt; capture the confirmed name, but do not submit yet.
                 string prefill = "";
                 namePrompt.Show(
                     prefill: prefill,
@@ -230,6 +237,7 @@ public class GameManager : MonoBehaviour
                         pendingName = string.IsNullOrWhiteSpace(confirmedName) ? "Anonymous" : confirmedName.Trim();
                         if (pendingName.Length > 20) pendingName = pendingName.Substring(0, 20);
 
+                        // Mirror the confirmed name into the input field if present
                         if (!nameInput && namePromptUI)
                             nameInput = namePromptUI.GetComponentInChildren<TMP_InputField>(true);
                         if (nameInput) nameInput.text = pendingName;
@@ -246,6 +254,7 @@ public class GameManager : MonoBehaviour
 
     public void OnClickSubmitScore()
     {
+        // Guard rails to avoid invalid submits or double-submits
         if (!isLeaderboardLevel || lb == null)
         {
             Debug.LogWarning("[GM] Submit clicked but leaderboard client is not available.");
@@ -262,7 +271,7 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        // Prefer the confirmed name from the prompt; otherwise read from input; otherwise Anonymous.
+        // Prefer the prompt-confirmed name, then the field, else Anonymous
         string name = !string.IsNullOrWhiteSpace(pendingName) ? pendingName :
                       (nameInput ? nameInput.text : "");
         name = string.IsNullOrWhiteSpace(name) ? "Anonymous" : name.Trim();
@@ -274,18 +283,20 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator SubmitAfterName(string name, int stars, float frozenDuration)
     {
+        // Make sure we have a valid session before finishing
         if (lb != null)
             yield return lb.EnsureSession(leaderboardLevelId);
 
+        // Use the frozen score snapshot; fall back to FinalScore if needed
         var snapScore = ScoreManager.Instance ? ScoreManager.Instance.FrozenScore : 0f;
-        if (snapScore <= 0f) snapScore = ScoreManager.Instance.FinalScore; // fallback
+        if (snapScore <= 0f) snapScore = ScoreManager.Instance.FinalScore;
 
         yield return lb.FinishLevel(
             leaderboardLevelId,
             stars,
             name,
             frozenDuration,
-            snapScore,                           
+            snapScore,
             serverScore =>
             {
                 MaybeShowLeaderboard();
@@ -298,9 +309,9 @@ public class GameManager : MonoBehaviour
         );
     }
 
-
     private void MaybeShowLeaderboard()
     {
+        // If we have a UI + client, fetch and fill; otherwise just reveal the panel
         if (leaderboard != null && lb != null)
         {
             StartCoroutine(lb.GetLeaderboard(leaderboardLevelId,
