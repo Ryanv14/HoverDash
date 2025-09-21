@@ -15,7 +15,7 @@ public class FinishLine : MonoBehaviour
         finishCollider = GetComponent<Collider>();
         finishCollider.isTrigger = true; // must be a trigger
 
-        // Ensure there's a kinematic rigidbody on this trigger 
+        // Some setups need a kinematic rigidbody on triggers to register consistently
         if (ensureKinematicRigidbody)
         {
             rb = GetComponent<Rigidbody>();
@@ -25,7 +25,7 @@ public class FinishLine : MonoBehaviour
         }
     }
 
-    // Re-enable the trigger for another run (useful if you don't reload the scene)
+    // Lets the same finish line be reused without a scene reload
     public void ResetGate()
     {
         if (finishCollider) finishCollider.enabled = true;
@@ -37,7 +37,6 @@ public class FinishLine : MonoBehaviour
 
         Debug.Log("[FinishLine] Player crossed the finish line.");
 
-        // Delegate finish logic to GameManager
         var gm = FindFirstObjectByType<GameManager>();
         if (gm != null)
         {
@@ -45,13 +44,14 @@ public class FinishLine : MonoBehaviour
         }
         else
         {
+            // Fallback if no GameManager is present
             Debug.LogWarning("[FinishLine] GameManager not found; using local score fallback.");
             ScoreManager.Instance.FinishLevel();
             UIManager.Instance.StopTimer();
             UIManager.Instance.ShowLevelComplete(ScoreManager.Instance.FinalScore);
         }
 
-        // Prevent double-triggering until next run/reset
+        // Disable until reset to avoid multiple triggers in one run
         if (finishCollider) finishCollider.enabled = false;
     }
 }

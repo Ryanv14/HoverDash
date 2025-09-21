@@ -1,4 +1,4 @@
-//OrbitHazard.cs
+// OrbitingHazards.cs
 using UnityEngine;
 
 public class OrbitingHazards : MonoBehaviour
@@ -10,7 +10,7 @@ public class OrbitingHazards : MonoBehaviour
     public float degreesPerSecond = 90f;
     [Tooltip("Randomize direction (CW/CCW) at start for variation.")]
     public bool randomizeDirection = true;
-    [Range(0f, 1f)] public float randomPhase = 0f; // random starting angle
+    [Range(0f, 1f)] public float randomPhase = 0f; // starting angle offset (0–1 of full circle)
 
     [Header("Bob (optional)")]
     public bool verticalBob = false;
@@ -27,6 +27,8 @@ public class OrbitingHazards : MonoBehaviour
         _pivotStartPos = pivot.localPosition;
 
         if (randomizeDirection) _dir = Random.value < 0.5f ? -1f : 1f;
+
+        // apply initial phase offset
         _startAngle = randomPhase * 360f;
         pivot.localRotation = Quaternion.Euler(0f, _startAngle, 0f);
     }
@@ -35,11 +37,12 @@ public class OrbitingHazards : MonoBehaviour
     {
         if (!pivot) return;
 
-        // constant angular velocity
+        // constant angular velocity around Y
         pivot.localRotation *= Quaternion.Euler(0f, _dir * degreesPerSecond * Time.deltaTime, 0f);
 
         if (verticalBob)
         {
+            // simple sine wave offset relative to the pivot’s start position
             float y = Mathf.Sin(Time.time * bobSpeed) * bobAmplitude;
             pivot.localPosition = _pivotStartPos + new Vector3(0f, y, 0f);
         }

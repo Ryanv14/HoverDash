@@ -20,7 +20,6 @@ public class SlidingGate : MonoBehaviour
     [Tooltip("Panels slide along this local axis (usually X).")]
     public Vector3 slideAxis = Vector3.right;
 
-    // cached
     private Vector3 _leftStart;
     private Vector3 _rightStart;
 
@@ -34,14 +33,13 @@ public class SlidingGate : MonoBehaviour
     {
         if (!panelLeft || !panelRight || cycleSeconds <= 0f) return;
 
-        // normalized time 0..1
+        // normalized cycle time 0..1
         float t = Mathf.Repeat((Time.time / cycleSeconds) + phaseOffset, 1f);
 
-        // ping-pong 0->1->0 with custom easing
+        // ping-pong between open and closed, shaped by easing curve
         float open01 = t <= 0.5f ? (t / 0.5f) : (1f - (t - 0.5f) / 0.5f);
         open01 = easing.Evaluate(open01);
 
-        // closed when open01=0, fully open when open01=1
         float offset = (1f - open01) * travel;
 
         Vector3 dir = slideAxis.normalized;
@@ -50,6 +48,10 @@ public class SlidingGate : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    void OnValidate() { slideAxis = slideAxis == Vector3.zero ? Vector3.right : slideAxis; }
+    void OnValidate()
+    {
+        // avoid zero-length axis
+        if (slideAxis == Vector3.zero) slideAxis = Vector3.right;
+    }
 #endif
 }

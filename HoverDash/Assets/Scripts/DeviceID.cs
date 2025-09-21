@@ -7,7 +7,7 @@ public static class DeviceId
 
     public static string GetOrCreate()
     {
-        // Prefer cached GUID (works on all platforms, including WebGL)
+        // Prefer a cached GUID so the ID stays stable between runs
         var cached = PlayerPrefs.GetString(Key, "");
         if (!string.IsNullOrEmpty(cached))
             return cached;
@@ -15,16 +15,17 @@ public static class DeviceId
         string id = null;
 
 #if !UNITY_WEBGL
-        // Use Unity's deviceUniqueIdentifier when available
+        // Unity provides a deviceUniqueIdentifier on most platforms
         id = SystemInfo.deviceUniqueIdentifier;
+        // Fallback if Unity can't give a usable value
         if (string.IsNullOrEmpty(id) || id == "Unknown")
             id = System.Guid.NewGuid().ToString("N");
 #else
-        // 2) WebGL has no reliable deviceUniqueIdentifier → use GUID
+        // WebGL has no reliable unique identifier → just generate a GUID
         id = System.Guid.NewGuid().ToString("N");
 #endif
 
-        // Normalize length for server (8..64)
+        // Clamp to server's accepted length (8–64 characters)
         if (id.Length < 8) id = (id + System.Guid.NewGuid().ToString("N")).Substring(0, 32);
         if (id.Length > 64) id = id.Substring(0, 64);
 
@@ -33,4 +34,3 @@ public static class DeviceId
         return id;
     }
 }
-

@@ -7,15 +7,15 @@ using UnityEngine.UI;
 public class LeaderboardUI : MonoBehaviour
 {
     [Header("List Setup")]
-    [SerializeField] private Transform content;               // ScrollView/Content
-    [SerializeField] private LeaderboardRow rowPrefab;        // Prefab with LeaderboardRow
+    [SerializeField] private Transform content;               // scroll view content root
+    [SerializeField] private LeaderboardRow rowPrefab;        // single row prefab
     [SerializeField] private int maxRows = 100;
 
     [Header("Auto Layout (optional)")]
-    [SerializeField] private bool autoFixLayout = true;       // auto-add layout components
-    [SerializeField] private float rowHeight = 48f;           // preferred row height
-    [SerializeField] private float spacing = 8f;              // space between rows
-    [SerializeField] private bool leftAlign = true;           // alignment of rows
+    [SerializeField] private bool autoFixLayout = true;       // add/fix layout components at runtime
+    [SerializeField] private float rowHeight = 48f;
+    [SerializeField] private float spacing = 8f;
+    [SerializeField] private bool leftAlign = true;
 
     [Header("States (optional)")]
     [SerializeField] private GameObject loadingGroup;
@@ -25,22 +25,22 @@ public class LeaderboardUI : MonoBehaviour
 
     private void Awake()
     {
-        if (autoFixLayout) EnsureContentLayout();
+        if (autoFixLayout) EnsureContentLayout(); // make sure content has the required layout bits
     }
 
     private void OnEnable()
     {
-        if (autoFixLayout) EnsureContentLayout();
+        if (autoFixLayout) EnsureContentLayout(); // cover re-enables / pooled panels
     }
 
     public void ShowLoading(string message = null)
     {
         gameObject.SetActive(true);
-        Clear();
+        Clear();                        // clear old rows if any
         Toggle(loadingGroup, true);
         Toggle(emptyGroup, false);
         Toggle(errorGroup, false);
-        if (errorText && !string.IsNullOrEmpty(message)) errorText.text = message;
+        if (errorText && !string.IsNullOrEmpty(message)) errorText.text = message; // optional note under loader
     }
 
     public void ShowError(string message)
@@ -63,7 +63,7 @@ public class LeaderboardUI : MonoBehaviour
         int count = rows == null ? 0 : Mathf.Min(maxRows, rows.Length);
         if (count == 0)
         {
-            Toggle(emptyGroup, true);
+            Toggle(emptyGroup, true);   // show empty state when there’s nothing to render
             return;
         }
         Toggle(emptyGroup, false);
@@ -71,11 +71,11 @@ public class LeaderboardUI : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             var row = Instantiate(rowPrefab, content);
-            ConfigureRowLayout(row);          
+            ConfigureRowLayout(row);    // make sure row stretches and has a fixed height
             row.Bind(i + 1, rows[i]);
         }
 
-        // Rebuild so layout updates immediately
+        // force an immediate layout pass so heights/spacing are correct this frame
         var crt = content as RectTransform;
         if (crt) LayoutRebuilder.ForceRebuildLayoutImmediate(crt);
     }
@@ -85,6 +85,7 @@ public class LeaderboardUI : MonoBehaviour
     private void Clear()
     {
         if (!content) return;
+        // destroy from last to first to avoid index churn
         for (int i = content.childCount - 1; i >= 0; i--)
             Destroy(content.GetChild(i).gameObject);
     }
@@ -94,29 +95,29 @@ public class LeaderboardUI : MonoBehaviour
         if (go && go.activeSelf != on) go.SetActive(on);
     }
 
-    // Layout helpers 
+    // ------------- layout helpers -------------
     private void EnsureContentLayout()
     {
         if (!content) return;
 
-        // Ensure a VerticalLayoutGroup on Content
+        // ensure a VerticalLayoutGroup on content
         var vlg = content.GetComponent<VerticalLayoutGroup>();
         if (!vlg) vlg = content.gameObject.AddComponent<VerticalLayoutGroup>();
         vlg.spacing = spacing;
-        vlg.childForceExpandHeight = false;
+        vlg.childForceExpandHeight = false; // let rows keep their preferred height
         vlg.childForceExpandWidth = true;
         vlg.childControlHeight = true;
         vlg.childControlWidth = true;
         vlg.childAlignment = leftAlign ? TextAnchor.UpperLeft : TextAnchor.UpperCenter;
         vlg.padding = new RectOffset(0, 0, 0, 0);
 
-        // Ensure a ContentSizeFitter so Content grows with children
+        // content grows to fit children vertically
         var csf = content.GetComponent<ContentSizeFitter>();
         if (!csf) csf = content.gameObject.AddComponent<ContentSizeFitter>();
         csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        // Tidy Content RectTransform (top-stretch)
+        // top-stretch rect so rows flow downward from the top
         var rt = content as RectTransform;
         if (rt)
         {
@@ -134,7 +135,7 @@ public class LeaderboardUI : MonoBehaviour
 
         var go = row.gameObject;
 
-        // Make row stretch horizontally, fixed preferred height
+        // stretch full width, fixed preferred height
         var rt = go.GetComponent<RectTransform>();
         if (rt)
         {
@@ -144,12 +145,13 @@ public class LeaderboardUI : MonoBehaviour
             rt.sizeDelta = new Vector2(0f, rowHeight);
         }
 
-        // Ensure LayoutElement with height
+        // enforce the height even if child content changes
         var le = go.GetComponent<LayoutElement>();
         if (!le) le = go.AddComponent<LayoutElement>();
         le.preferredHeight = rowHeight;
         le.minHeight = rowHeight;
 
+        // simple horizontal layout for rank / name / score
         var hlg = go.GetComponent<HorizontalLayoutGroup>();
         if (!hlg)
         {
